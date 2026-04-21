@@ -3,7 +3,11 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>VeloIQ — Performance Dashboard</title>
+<title>VeloIQ — Peloton Performance Dashboard</title>
+<meta name="description" content="Free Peloton analytics dashboard. Import your workout CSV and explore cycling performance, streaks, trends, and ride comparisons. Your data stays in your browser.">
+<meta property="og:title" content="VeloIQ — Peloton Performance Dashboard">
+<meta property="og:description" content="Free analytics for Peloton riders. Import your CSV, explore performance trends, compare rides, and track streaks. No account required.">
+<meta name="theme-color" content="#0a0a0f">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Mono:wght@400;500&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,600;1,9..40,300&display=swap" rel="stylesheet">
 <style>
@@ -388,17 +392,35 @@
 <div id="import-screen">
   <div style="text-align:center">
     <div class="logo-title">VELO IQ</div>
-    <div class="logo-sub">Performance Dashboard</div>
+    <div class="logo-sub">Peloton Performance Dashboard</div>
   </div>
+
   <div class="drop-zone" id="drop-zone">
     <div class="drop-icon" id="drop-icon">📊</div>
     <div class="drop-label" id="drop-label">Drop your Peloton CSV here</div>
     <div class="drop-hint">or click to browse · workouts_XXXXX.csv</div>
   </div>
-  <!-- Hidden file input outside the drop-zone so clicks don't conflict -->
   <input type="file" id="file-input" accept=".csv,.CSV" style="display:none">
   <div id="import-status" style="min-height:20px;font-size:12px;text-align:center"></div>
   <button class="import-btn" id="import-btn" disabled>Import Workouts</button>
+
+  <!-- How to export -->
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px 20px;width:420px;font-size:12px">
+    <div style="font-size:10px;text-transform:uppercase;letter-spacing:1.5px;color:var(--muted);margin-bottom:10px;font-weight:600">How to export from Peloton</div>
+    <div style="display:flex;flex-direction:column;gap:7px;color:var(--label);line-height:1.5">
+      <div><span style="color:var(--accent);font-family:'DM Mono',monospace;margin-right:8px">1</span>Log in at <span style="color:var(--text);font-family:'DM Mono',monospace">members.onepeloton.com</span></div>
+      <div><span style="color:var(--accent);font-family:'DM Mono',monospace;margin-right:8px">2</span>Go to <strong style="color:var(--text)">Profile → Workouts</strong></div>
+      <div><span style="color:var(--accent);font-family:'DM Mono',monospace;margin-right:8px">3</span>Click <strong style="color:var(--text)">Download Workouts</strong> — Peloton emails you the CSV</div>
+      <div><span style="color:var(--accent);font-family:'DM Mono',monospace;margin-right:8px">4</span>Import the file above once it arrives</div>
+    </div>
+  </div>
+
+  <!-- Privacy badge -->
+  <div style="display:flex;align-items:center;gap:8px;font-size:11px;color:var(--muted)">
+    <span style="font-size:14px">🔒</span>
+    <span>Your data <strong style="color:var(--text)">never leaves your device</strong> — everything is stored locally in your browser</span>
+  </div>
+
   <div class="stored-hint" id="stored-hint" style="display:none">
     <div class="stored-dot"></div>
     <span id="stored-text"></span>
@@ -575,7 +597,7 @@
               <div class="help-step-num">01</div>
               <div>
                 <div class="help-step-title">Export from Peloton</div>
-                <div class="help-step-body">Log in at <span class="help-code">members.onepeloton.com</span>, go to <strong>Profile → Workouts</strong>, then click <strong>Download Workouts</strong>. You'll receive a <span class="help-code">.csv</span> file by email within a few minutes.</div>
+                <div class="help-step-body">Log in at <span class="help-code">members.onepeloton.com</span>, go to <strong>Profile → Workouts</strong>, then click <strong>Download Workouts</strong>. Peloton will email you a <span class="help-code">.csv</span> file — this usually arrives within a few minutes but can take up to an hour. The file includes your complete workout history.</div>
               </div>
             </div>
             <div class="help-step">
@@ -691,10 +713,27 @@
         </div>
       </div>
 
+      <!-- Browser compat note -->
+      <div class="help-section">
+        <div class="help-section-title">🌐 Browser Compatibility</div>
+        <div class="help-card">
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:12px;text-align:center">
+            <div><div style="font-size:22px;margin-bottom:4px">✅</div><div style="font-size:12px;color:var(--text);font-weight:600">Chrome</div><div style="font-size:11px;color:var(--muted)">Recommended</div></div>
+            <div><div style="font-size:22px;margin-bottom:4px">✅</div><div style="font-size:12px;color:var(--text);font-weight:600">Safari</div><div style="font-size:11px;color:var(--muted)">iOS &amp; macOS</div></div>
+            <div><div style="font-size:22px;margin-bottom:4px">✅</div><div style="font-size:12px;color:var(--text);font-weight:600">Firefox</div><div style="font-size:11px;color:var(--muted)">Fully supported</div></div>
+            <div><div style="font-size:22px;margin-bottom:4px">✅</div><div style="font-size:12px;color:var(--text);font-weight:600">Edge</div><div style="font-size:11px;color:var(--muted)">Fully supported</div></div>
+          </div>
+          <div class="help-tip" style="margin-top:14px">⚠️ <strong>Incognito / Private mode</strong> does not save data between sessions — you will need to re-import each visit. Use a regular browser window for the best experience.</div>
+          <div class="help-tip" style="margin-top:8px">📱 <strong>iPhone / iPad:</strong> Open in Safari and tap Share → "Add to Home Screen" for a full-screen app experience. Data persists as long as Safari storage is not cleared.</div>
+        </div>
+      </div>
+
       <!-- Footer -->
       <div style="margin-top:40px;padding-top:20px;border-top:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px">
-        <div style="font-size:11px;color:var(--muted)">VeloIQ Dashboard · Built for <span style="color:var(--accent)">IIBobII</span></div>
-        <div style="font-size:11px;color:var(--muted)">Data stays in your browser · No account required · No data leaves your device</div>
+        <div style="font-size:11px;color:var(--muted)">VeloIQ · Free Peloton Analytics · <a href="https://github.com" style="color:var(--accent3);text-decoration:none" target="_blank">View on GitHub</a></div>
+        <div style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted)">
+          <span>🔒</span><span>Data stays in your browser · No account required · Nothing leaves your device</span>
+        </div>
       </div>
 
     </div>
@@ -849,7 +888,7 @@ document.getElementById('re-import-btn').addEventListener('click', () => {
   document.getElementById('import-screen').classList.remove('hidden');
 });
 document.getElementById('clear-btn').addEventListener('click', () => {
-  if (confirm('Clear all saved data?')) {
+  if (confirm('Delete all saved workout data?\n\nThis will remove your imported workouts from this browser. You will need to re-import your Peloton CSV to use VeloIQ again.\n\nThis cannot be undone.')) {
     localStorage.removeItem('veloiq_data');
     localStorage.removeItem('veloiq_meta');
     location.reload();
