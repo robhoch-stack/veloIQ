@@ -111,21 +111,23 @@
   #app.visible { display: flex; }
 
   header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 18px 32px;
     border-bottom: 1px solid var(--border);
     position: sticky; top: 0;
     background: var(--bg);
     z-index: 50;
-    flex-wrap: wrap;
-    gap: 0;
   }
+  .header-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 32px 10px;
+  }
+  .header-brand-wrap { display: flex; flex-direction: column; gap: 1px; }
   .header-brand { font-family: 'Bebas Neue', sans-serif; font-size: 28px; color: var(--accent); letter-spacing: 3px; line-height: 1; }
-  .header-sub { font-size: 10px; color: var(--muted); letter-spacing: 1.5px; text-transform: uppercase; margin-top: 2px; }
-  .header-meta { color: var(--muted); font-size: 12px; }
-  .header-actions { display: flex; gap: 8px; align-items: center; }
+  .header-sub { font-size: 10px; color: var(--muted); letter-spacing: 1.5px; text-transform: uppercase; margin-top: 1px; }
+  .header-meta { color: var(--muted); font-size: 11px; margin-top: 2px; }
+  .header-actions { display: flex; gap: 8px; align-items: center; flex-shrink: 0; }
+  .header-tabs-row { padding: 0 32px; }
   .btn-sm {
     border: 1px solid var(--border);
     background: transparent;
@@ -145,12 +147,15 @@
   .tabs {
     display: flex;
     gap: 0;
-    border-bottom: 1px solid var(--border);
-    padding: 0 32px;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
     background: var(--bg);
   }
+  .tabs::-webkit-scrollbar { display: none; }
+  .header-tabs-row { border-bottom: 1px solid var(--border); }
   .tab {
-    padding: 14px 22px;
+    padding: 12px 20px;
     cursor: pointer;
     color: var(--muted);
     font-size: 13px;
@@ -161,6 +166,7 @@
     letter-spacing: .3px;
     touch-action: manipulation;
     user-select: none;
+    flex-shrink: 0;
   }
   .tab:hover { color: var(--text); }
   .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
@@ -403,48 +409,49 @@
   /* ── MOBILE — phone ≤600px ── */
   @media (max-width: 600px) {
 
-    /* Header: stack brand + actions, hide meta */
-    header {
-      padding: 12px 16px;
-      flex-wrap: wrap;
-      gap: 8px;
-    }
-    .header-brand { font-size: 22px; }
+    /* Header: compact two-row layout */
+    .header-top { padding: 10px 14px 8px; }
+    .header-brand { font-size: 22px; letter-spacing: 2px; }
     .header-sub { display: none; }
     .header-meta { display: none; }
+    .header-tabs-row { padding: 0 4px; }
     .header-actions { gap: 6px; }
-    .header-actions .btn-sm { padding: 5px 10px; font-size: 11px; }
+    .header-actions .btn-sm { padding: 6px 10px; font-size: 11px; }
 
-    /* Tabs: scrollable single row, no wrapping */
-    .tabs {
-      padding: 0 8px;
-      overflow-x: auto;
-      -webkit-overflow-scrolling: touch;
-      scrollbar-width: none;
-      flex-shrink: 0;
+    /* Tabs: scrollable, with fade-out right edge hint */
+    .tabs { padding: 0 8px; }
+    .header-tabs-row {
+      position: relative;
     }
-    .tabs::-webkit-scrollbar { display: none; }
+    .header-tabs-row::after {
+      content: '';
+      position: absolute;
+      top: 0; right: 0; bottom: 0;
+      width: 32px;
+      background: linear-gradient(to right, transparent, var(--bg));
+      pointer-events: none;
+    }
     .tab {
-      padding: 12px 14px;
+      padding: 10px 13px;
       font-size: 12px;
       white-space: nowrap;
       flex-shrink: 0;
     }
 
     /* Content padding */
-    .content { padding: 16px 12px; }
+    .content { padding: 12px 10px; }
 
     /* KPI grid: 2 columns on phone */
-    .kpi-grid { grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 16px; }
-    .kpi { padding: 14px 14px; }
-    .kpi-value { font-size: 26px; }
-    .kpi-label { font-size: 10px; }
-    .kpi-sub { font-size: 10px; }
+    .kpi-grid { grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 14px; }
+    .kpi { padding: 12px 12px; border-radius: 10px; }
+    .kpi-value { font-size: 28px; }
+    .kpi-label { font-size: 9px; letter-spacing: .5px; }
+    .kpi-sub { font-size: 10px; margin-top: 2px; }
 
     /* Charts: all single column */
     .chart-grid, .chart-grid.thirds { grid-template-columns: 1fr; }
-    .panel { padding: 14px 12px; }
-    .panel-title { font-size: 10px; margin-bottom: 12px; }
+    .panel { padding: 12px 10px; border-radius: 10px; }
+    .panel-title { font-size: 10px; margin-bottom: 10px; }
 
     /* Filter bar: wrap tightly */
     .filter-bar { gap: 8px; margin-bottom: 16px; }
@@ -541,22 +548,26 @@
 <!-- Main App -->
 <div id="app">
   <header>
-    <div>
-      <div class="header-brand">VELO IQ</div>
-      <div class="header-sub">Peloton Performance Dashboard</div>
-      <div class="header-meta" id="header-meta"></div>
+    <div class="header-top">
+      <div class="header-brand-wrap">
+        <div class="header-brand">VELO IQ</div>
+        <div class="header-sub">Peloton Performance Dashboard</div>
+        <div class="header-meta" id="header-meta"></div>
+      </div>
+      <div class="header-actions">
+        <button class="btn-sm" id="re-import-btn">↑ Import</button>
+        <button class="btn-sm" id="clear-btn">Clear</button>
+      </div>
     </div>
-    <div class="tabs" style="border:none;padding:0">
-      <div class="tab active" data-tab="overview">Overview</div>
-      <div class="tab" data-tab="cycling">Cycling</div>
-      <div class="tab" data-tab="activity">Activity</div>
-      <div class="tab" data-tab="log">Workout Log</div>
-      <div class="tab" data-tab="compare">Compare</div>
-      <div class="tab" data-tab="help">Help</div>
-    </div>
-    <div class="header-actions">
-      <button class="btn-sm" id="re-import-btn">↑ Import New</button>
-      <button class="btn-sm" id="clear-btn">Clear Data</button>
+    <div class="header-tabs-row">
+      <div class="tabs">
+        <div class="tab active" data-tab="overview">Overview</div>
+        <div class="tab" data-tab="cycling">Cycling</div>
+        <div class="tab" data-tab="activity">Activity</div>
+        <div class="tab" data-tab="log">Log</div>
+        <div class="tab" data-tab="compare">Compare</div>
+        <div class="tab" data-tab="help">Help</div>
+      </div>
     </div>
   </header>
 
