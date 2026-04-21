@@ -1359,9 +1359,22 @@ function buildToday() {
   // Sort rides chronologically (allData already sorted)
   const lastRide    = allData[allData.length - 1];
   const lastCyRide  = cyRides[cyRides.length - 1];
-  const daysSinceLast = Math.floor((today - lastRide._date) / 86400000);
 
-  // ── Rolling windows ───────────────────────────────────────
+  // Zero the last ride date to midnight (same as today) so day diff is always whole days
+  const lastRideMidnight = new Date(lastRide._date);
+  lastRideMidnight.setHours(0, 0, 0, 0);
+  const daysSinceLast = Math.max(0, Math.floor((today - lastRideMidnight) / 86400000));
+
+  // ── Calendar windows ──────────────────────────────────────
+  // "This week" = Monday–today (ISO calendar week, not rolling 7 days)
+  const startOfWeek = new Date(today);
+  const dow = today.getDay(); // 0=Sun, 1=Mon…
+  startOfWeek.setDate(today.getDate() - (dow === 0 ? 6 : dow - 1));
+
+  // "This month" = 1st of current month to today
+  const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+
+  // Rolling windows for performance calculations (keep as rolling for stats)
   const days28ago = new Date(today); days28ago.setDate(today.getDate() - 28);
   const days7ago  = new Date(today); days7ago.setDate(today.getDate() - 7);
   const days84ago = new Date(today); days84ago.setDate(today.getDate() - 84); // 12 weeks
@@ -1369,6 +1382,11 @@ function buildToday() {
   const rides28 = cyRides.filter(d => d._date >= days28ago);
   const rides7  = cyRides.filter(d => d._date >= days7ago);
   const rides84 = cyRides.filter(d => d._date >= days84ago);
+
+  // Calendar counts for display
+  const ridesThisWeek  = cyRides.filter(d => d._date >= startOfWeek).length;
+  const ridesThisMonth = cyRides.filter(d => d._date >= startOfMonth).length;
+  const minsThisWeekCal = allData.filter(d => d._date >= startOfWeek && d._discipline === 'Cycling').reduce((s,d) => s+d._length, 0);
   const allRides = cyRides;
 
   // ── Per-ride wpm ──────────────────────────────────────────
@@ -1462,8 +1480,7 @@ function buildToday() {
   const targetWattsHigh = Math.round(avgWatts28 * progressFactor * 1.05);
 
   // ── Recommended ride length ───────────────────────────────
-  const minsThisWeek = allData.filter(d => d._date >= days7ago && d._discipline === 'Cycling')
-                              .reduce((s,d) => s+d._length, 0);
+  const minsThisWeek = minsThisWeekCal; // calendar week, not rolling 7 days
   let recLength;
   if      (readinessCap >= 8 && minsThisWeek < 90)  recLength = 45;
   else if (readinessCap >= 8 && minsThisWeek < 150) recLength = 30;
@@ -1580,8 +1597,8 @@ function buildToday() {
 
     '<div style="margin-top:14px">' +
     '<div class="today-metric-row"><span class="today-metric-label">Days since last ride</span><span class="today-metric-val">' + daysSinceLast + (daysSinceLast === 1 ? ' day' : ' days') + '</span></div>' +
-    '<div class="today-metric-row"><span class="today-metric-label">Rides this week</span><span class="today-metric-val">' + rides7.length + '</span></div>' +
-    '<div class="today-metric-row"><span class="today-metric-label">Rides this month</span><span class="today-metric-val">' + rides28.length + '</span></div>' +
+    '<div class="today-metric-row"><span class="today-metric-label">Rides this week</span><span class="today-metric-val">' + ridesThisWeek + '</span></div>' +
+    '<div class="today-metric-row"><span class="today-metric-label">Rides this month</span><span class="today-metric-val">' + ridesThisMonth + '</span></div>' +
     '<div class="today-metric-row"><span class="today-metric-label">Recent vs baseline</span><span class="today-metric-val" style="color:' + (recentVsChron >= 1 ? 'var(--green)' : 'var(--accent)') + '">' + (recentVsChron >= 1 ? '+' : '') + ((recentVsChron - 1) * 100).toFixed(0) + '%</span></div>' +
     '</div>' +
     '</div>' +
