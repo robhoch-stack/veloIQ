@@ -639,6 +639,32 @@
         <svg class="chart-svg" id="cadence-bar" height="200"></svg>
       </div>
     </div>
+
+    <!-- Instructor Performance Correlation -->
+    <div class="chart-grid single" style="margin-top:16px">
+      <div class="panel">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;flex-wrap:wrap;gap:8px">
+          <div class="panel-title" style="margin-bottom:0">Instructor Performance Correlation</div>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <span style="font-size:11px;color:var(--muted)">Sort by:</span>
+            <select id="inst-sort" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:5px;padding:4px 8px;font-size:11px;font-family:'DM Sans',sans-serif;outline:none">
+              <option value="index">Performance Index</option>
+              <option value="watts">Avg Watts</option>
+              <option value="wpm">Watts / Min</option>
+              <option value="rides">Ride Count</option>
+            </select>
+            <select id="inst-min-rides" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);border-radius:5px;padding:4px 8px;font-size:11px;font-family:'DM Sans',sans-serif;outline:none">
+              <option value="3">Min 3 rides</option>
+              <option value="5" selected>Min 5 rides</option>
+              <option value="10">Min 10 rides</option>
+              <option value="20">Min 20 rides</option>
+            </select>
+          </div>
+        </div>
+        <div style="font-size:11px;color:var(--muted);margin-bottom:16px">Performance index = how your avg watts/min compares to your overall baseline. Values above 1.00 mean you push harder with this instructor.</div>
+        <div id="inst-correlation-table"></div>
+      </div>
+    </div>
   </div>
 
   <!-- ACTIVITY TAB -->
@@ -1427,6 +1453,7 @@ function buildCycling() {
   buildInstructorBar();
   buildBestRides();
   buildCadenceBar();
+  buildInstructorCorrelation();
 }
 
 function buildWattsLine() {
@@ -1500,6 +1527,167 @@ function buildCadenceBar() {
   });
   const entries = Object.entries(lenGroups).sort((a,b)=>parseInt(a[0])-parseInt(b[0]));
   drawBarChart('cadence-bar', entries.map(e=>e[0]), entries.map(e=>Math.round(avg(e[1]))), '#22c55e');
+}
+
+// ── INSTRUCTOR PERFORMANCE CORRELATION ───────────────────────
+function buildInstructorCorrelation() {
+  const sortEl     = document.getElementById('inst-sort');
+  const minRidesEl = document.getElementById('inst-min-rides');
+  if (!sortEl) return;
+
+  // Wire controls (once — guard with flag)
+  if (!sortEl.dataset.wired) {
+    sortEl.addEventListener('change', buildInstructorCorrelation);
+    minRidesEl.addEventListener('change', buildInstructorCorrelation);
+    sortEl.dataset.wired = '1';
+  }
+
+  const sortBy   = sortEl.value;
+  const minRides = parseInt(minRidesEl.value);
+
+  // Build per-instructor stats from filteredCy
+  const map = {};
+  filteredCy.forEach(d => {
+    if (!d._instructor || d._watts <= 0) return;
+    if (!map[d._instructor]) map[d._instructor] = { watts:[], wpm:[], opm:[], cad:[], hr:[], rides:0 };
+    const wpm = d._length > 0 ? d._watts / d._length : 0;
+    const opm = d._length > 0 ? d._output / d._length : 0;
+    map[d._instructor].watts.push(d._watts);
+    map[d._instructor].wpm.push(wpm);
+    map[d._instructor].opm.push(opm);
+    if (d._cadence > 0) map[d._instructor].cad.push(d._cadence);
+    if (d._hr > 0)      map[d._instructor].hr.push(d._hr);
+    map[d._instructor].rides++;
+  });
+
+  // Overall baseline (all instructors combined)
+  const allWpm = filteredCy.filter(d => d._watts > 0 && d._length > 0).map(d => d._watts / d._length);
+  const baselineWpm = avg(allWpm) || 1;
+
+  // Build entries — only instructors with enough rides
+  let entries = Object.entries(map)
+    .filter(([, v]) => v.rides >= minRides)
+    .map(([name, v]) => {
+      const avgWatts  = avg(v.watts);
+      const avgWpm    = avg(v.wpm);
+      const avgOpm    = avg(v.opm);
+      const avgCad    = v.cad.length ? avg(v.cad) : null;
+      const avgHr     = v.hr.length  ? avg(v.hr)  : null;
+      const perfIndex = avgWpm / baselineWpm;
+
+      // Standard deviation of wpm for confidence band
+      const mean = avgWpm;
+      const variance = v.wpm.reduce((s, x) => s + (x - mean) ** 2, 0) / v.wpm.length;
+      const stdDev = Math.sqrt(variance);
+      const cv = mean > 0 ? stdDev / mean : 0; // coefficient of variation
+
+      // Confidence: more rides + low variance = higher confidence
+      const confidence = Math.min(1, (v.rides / 20) * (1 - Math.min(cv, 0.5) * 1.2));
+
+      return { name, avgWatts, avgWpm, avgOpm, avgCad, avgHr, perfIndex, rides: v.rides, confidence, stdDev };
+    });
+
+  // Sort
+  const sortFns = {
+    index:  (a,b) => b.perfIndex - a.perfIndex,
+    watts:  (a,b) => b.avgWatts  - a.avgWatts,
+    wpm:    (a,b) => b.avgWpm    - a.avgWpm,
+    rides:  (a,b) => b.rides     - a.rides,
+  };
+  entries.sort(sortFns[sortBy] || sortFns.index);
+
+  if (!entries.length) {
+    document.getElementById('inst-correlation-table').innerHTML =
+      '<div style="color:var(--muted);font-size:12px;padding:20px 0">No instructors with enough rides match current filters.</div>';
+    return;
+  }
+
+  const maxWatts = Math.max(...entries.map(e => e.avgWatts));
+  const maxWpm   = Math.max(...entries.map(e => e.avgWpm));
+  const topIndex = Math.max(...entries.map(e => e.perfIndex));
+
+  // Render
+  let html = \`
+    <div style="overflow-x:auto;-webkit-overflow-scrolling:touch">
+    <table style="width:100%;border-collapse:collapse;font-size:12px;min-width:560px">
+      <thead>
+        <tr style="border-bottom:2px solid var(--border)">
+          <th style="text-align:left;padding:8px 10px;font-size:10px;text-transform:uppercase;letter-spacing:1px;color:var(--muted);width:160px">Instructor</th>
+          <th style="text-align:center;padding:8px 6px;font-size:10px;text-transform:uppercase;letter-spacing:1px;color:var(--muted)">Rides</th>
+          <th style="text-align:left;padding:8px 10px;font-size:10px;text-transform:uppercase;letter-spacing:1px;color:var(--muted)">Perf Index</th>
+          <th style="text-align:left;padding:8px 10px;font-size:10px;text-transform:uppercase;letter-spacing:1px;color:var(--muted)">Avg Watts</th>
+          <th style="text-align:left;padding:8px 10px;font-size:10px;text-transform:uppercase;letter-spacing:1px;color:var(--muted)">Watts / Min</th>
+          <th style="text-align:center;padding:8px 6px;font-size:10px;text-transform:uppercase;letter-spacing:1px;color:var(--muted)">Cadence</th>
+          <th style="text-align:center;padding:8px 6px;font-size:10px;text-transform:uppercase;letter-spacing:1px;color:var(--muted)">Confidence</th>
+        </tr>
+      </thead>
+      <tbody>
+  \`;
+
+  entries.forEach((e, i) => {
+    const isTop   = i === 0;
+    const rowBg   = i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,.02)';
+    const idxColor = e.perfIndex >= 1.05 ? 'var(--green)' : e.perfIndex >= 0.98 ? 'var(--accent2)' : '#e8413e';
+    const idxArrow = e.perfIndex >= 1.05 ? '↑' : e.perfIndex >= 0.98 ? '→' : '↓';
+    const wattsPct = (e.avgWatts / maxWatts) * 100;
+    const wpmPct   = (e.avgWpm   / maxWpm)   * 100;
+    const confDots = Math.round(e.confidence * 5);
+    const confColor = e.confidence > 0.7 ? 'var(--green)' : e.confidence > 0.4 ? 'var(--accent2)' : 'var(--muted)';
+    const confLabel = e.confidence > 0.7 ? 'High' : e.confidence > 0.4 ? 'Medium' : 'Low';
+    const firstName = e.name.split(' ')[0];
+
+    html += \`
+      <tr style="background:\${rowBg};border-bottom:1px solid rgba(42,42,62,.4)">
+        <td style="padding:10px 10px">
+          <div style="font-weight:600;color:var(--text);font-size:12px">\${e.name}\${isTop ? ' <span style="font-size:10px">🏆</span>' : ''}</div>
+          <div style="font-size:10px;color:var(--muted);margin-top:1px">\${e.rides} ride\${e.rides>1?'s':''}</div>
+        </td>
+        <td style="padding:10px 6px;text-align:center;font-family:'DM Mono',monospace;color:var(--label)">\${e.rides}</td>
+        <td style="padding:10px 10px">
+          <div style="display:flex;align-items:center;gap:6px">
+            <span style="font-family:'DM Mono',monospace;font-size:14px;font-weight:700;color:\${idxColor}">\${e.perfIndex.toFixed(2)}</span>
+            <span style="font-size:12px;color:\${idxColor}">\${idxArrow}</span>
+          </div>
+          <div style="font-size:10px;color:var(--muted);margin-top:2px">\${e.perfIndex >= 1.0 ? '+' : ''}\${((e.perfIndex-1)*100).toFixed(1)}% vs baseline</div>
+        </td>
+        <td style="padding:10px 10px;min-width:120px">
+          <div style="font-family:'DM Mono',monospace;color:var(--text);margin-bottom:4px">\${Math.round(e.avgWatts)}W</div>
+          <div style="height:4px;background:var(--surface2);border-radius:99px;width:100%">
+            <div style="height:4px;width:\${wattsPct}%;background:var(--accent2);border-radius:99px"></div>
+          </div>
+        </td>
+        <td style="padding:10px 10px;min-width:120px">
+          <div style="font-family:'DM Mono',monospace;color:var(--text);margin-bottom:4px">\${e.avgWpm.toFixed(2)}</div>
+          <div style="height:4px;background:var(--surface2);border-radius:99px;width:100%">
+            <div style="height:4px;width:\${wpmPct}%;background:var(--accent3);border-radius:99px"></div>
+          </div>
+        </td>
+        <td style="padding:10px 6px;text-align:center;font-family:'DM Mono',monospace;color:var(--label)">\${e.avgCad ? Math.round(e.avgCad)+' rpm' : '—'}</td>
+        <td style="padding:10px 6px;text-align:center">
+          <div style="font-size:10px;color:\${confColor};font-weight:600">\${confLabel}</div>
+          <div style="display:flex;justify-content:center;gap:2px;margin-top:3px">
+            \${[1,2,3,4,5].map(d => \`<div style="width:6px;height:6px;border-radius:50%;background:\${d<=confDots?confColor:'var(--surface2)'}" ></div>\`).join('')}
+          </div>
+        </td>
+      </tr>\`;
+  });
+
+  html += '</tbody></table></div>';
+
+  // Summary insight below table
+  if (entries.length >= 2) {
+    const top = entries[0];
+    const bot = entries[entries.length - 1];
+    const diff = ((top.perfIndex - bot.perfIndex) * 100).toFixed(1);
+    html += \`<div style="margin-top:14px;padding:12px 14px;background:rgba(59,130,246,.08);border-left:2px solid var(--accent3);border-radius:0 6px 6px 0;font-size:12px;color:var(--label);line-height:1.6">
+      💡 You ride <strong style="color:var(--text)">\${diff}% harder</strong> with
+      <strong style="color:var(--green)">\${top.name.split(' ')[0]}</strong> than with
+      <strong style="color:var(--accent)">\${bot.name.split(' ')[0]}</strong> on a watts/min basis.
+      Confidence is based on ride count and output consistency.
+    </div>\`;
+  }
+
+  document.getElementById('inst-correlation-table').innerHTML = html;
 }
 
 // ── ACTIVITY ──────────────────────────────────────────────────
