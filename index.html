@@ -6,11 +6,12 @@
 <title>VeloIQ — Peloton Performance Dashboard</title>
 <meta name="description" content="Free Peloton analytics dashboard. Import your workout CSV and explore cycling performance, streaks, trends, and ride comparisons. Your data stays in your browser.">
 <meta property="og:title" content="VeloIQ — Peloton Performance Dashboard">
-<meta property="og:description" content="Free analytics for Peloton riders. Import your CSV, explore performance trends, compare rides, and track streaks. No account required.">
+<meta property="og:description" content="Free Peloton Performance Dashboard. Import your workout CSV, explore cycling trends, compare rides, and track streaks. No account required — your data stays on your device.">
 <meta name="theme-color" content="#0a0a0f">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="VeloIQ">
+<meta name="apple-mobile-web-app-subtitle" content="Peloton Performance Dashboard">
 <meta name="mobile-web-app-capable" content="yes">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Mono:wght@400;500&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,600;1,9..40,300&display=swap" rel="stylesheet">
@@ -121,7 +122,8 @@
     flex-wrap: wrap;
     gap: 0;
   }
-  .header-brand { font-family: 'Bebas Neue', sans-serif; font-size: 28px; color: var(--accent); letter-spacing: 3px; }
+  .header-brand { font-family: 'Bebas Neue', sans-serif; font-size: 28px; color: var(--accent); letter-spacing: 3px; line-height: 1; }
+  .header-sub { font-size: 10px; color: var(--muted); letter-spacing: 1.5px; text-transform: uppercase; margin-top: 2px; }
   .header-meta { color: var(--muted); font-size: 12px; }
   .header-actions { display: flex; gap: 8px; align-items: center; }
   .btn-sm {
@@ -408,6 +410,7 @@
       gap: 8px;
     }
     .header-brand { font-size: 22px; }
+    .header-sub { display: none; }
     .header-meta { display: none; }
     .header-actions { gap: 6px; }
     .header-actions .btn-sm { padding: 5px 10px; font-size: 11px; }
@@ -540,6 +543,7 @@
   <header>
     <div>
       <div class="header-brand">VELO IQ</div>
+      <div class="header-sub">Peloton Performance Dashboard</div>
       <div class="header-meta" id="header-meta"></div>
     </div>
     <div class="tabs" style="border:none;padding:0">
@@ -691,7 +695,7 @@
       <!-- Hero -->
       <div style="margin-bottom:36px">
         <div style="font-family:'Bebas Neue',sans-serif;font-size:42px;color:var(--accent);letter-spacing:3px;line-height:1">VELO IQ</div>
-        <div style="font-size:13px;color:var(--muted);letter-spacing:2px;text-transform:uppercase;margin-top:4px">Performance Dashboard · User Guide</div>
+        <div style="font-size:13px;color:var(--muted);letter-spacing:2px;text-transform:uppercase;margin-top:4px">Peloton Performance Dashboard · User Guide</div>
         <div style="height:2px;background:linear-gradient(90deg,var(--accent),transparent);margin-top:14px;border-radius:2px"></div>
       </div>
 
@@ -837,7 +841,7 @@
 
       <!-- Footer -->
       <div style="margin-top:40px;padding-top:20px;border-top:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px">
-        <div style="font-size:11px;color:var(--muted)">VeloIQ · Free Peloton Analytics · <a href="https://github.com" style="color:var(--accent3);text-decoration:none" target="_blank">View on GitHub</a></div>
+        <div style="font-size:11px;color:var(--muted)">VeloIQ — Peloton Performance Dashboard · <a href="https://github.com" style="color:var(--accent3);text-decoration:none" target="_blank">View on GitHub</a></div>
         <div style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted)">
           <span>🔒</span><span>Data stays in your browser · No account required · Nothing leaves your device</span>
         </div>
