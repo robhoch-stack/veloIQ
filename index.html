@@ -358,6 +358,19 @@
   /* ── RESPONSIVE ── */
   /* ── TODAY ── */
   .today-grid { display:grid; grid-template-columns:1fr 1fr 1fr; gap:16px; margin-bottom:24px; }
+  .hrv-input-wrap { display:flex; gap:8px; align-items:center; margin-top:12px; }
+  .hrv-input { background:var(--surface2); border:1px solid var(--border); color:var(--text); border-radius:6px; padding:8px 12px; font-family:'DM Mono',monospace; font-size:18px; width:90px; text-align:center; outline:none; -webkit-appearance:none; }
+  .hrv-input:focus { border-color:var(--accent3); }
+  .hrv-submit { background:var(--accent3); color:#fff; border:none; border-radius:6px; padding:8px 14px; font-size:12px; font-weight:600; cursor:pointer; font-family:'DM Sans',sans-serif; touch-action:manipulation; transition:opacity .15s; }
+  .hrv-submit:hover { opacity:.85; }
+  .hrv-history-row { display:flex; align-items:center; justify-content:space-between; padding:5px 0; font-size:11px; border-bottom:1px solid rgba(42,42,62,.3); }
+  .hrv-history-row:last-child { border-bottom:none; }
+  .score-breakdown { display:flex; flex-direction:column; gap:6px; margin-top:14px; }
+  .score-factor-row { display:flex; align-items:center; gap:8px; }
+  .score-factor-label { font-size:10px; text-transform:uppercase; letter-spacing:.8px; color:var(--muted); width:90px; flex-shrink:0; }
+  .score-factor-track { flex:1; height:5px; background:var(--surface2); border-radius:99px; }
+  .score-factor-fill { height:5px; border-radius:99px; transition:width .5s; }
+  .score-factor-val { font-family:'DM Mono',monospace; font-size:11px; color:var(--label); width:28px; text-align:right; flex-shrink:0; }
   .today-hero { grid-column:1; }
   .today-rec  { grid-column:2 / 4; }
   .readiness-ring { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:6px; }
@@ -602,7 +615,7 @@
   </div>
 
   <!-- OVERVIEW TAB -->
-  <div class="content tab-content" id="tab-overview">
+  <div class="content tab-content" id="tab-overview" style="display:none">
     <div class="kpi-grid" id="kpi-grid"></div>
     <div class="chart-grid">
       <div class="panel">
@@ -1297,6 +1310,38 @@ document.querySelectorAll('.tab').forEach(t => {
 });
 
 // ── TODAY ─────────────────────────────────────────────────────
+// ── HRV STORAGE ───────────────────────────────────────────────
+function todayKey() {
+  const d = new Date(); 
+  return 'hrv_' + d.getFullYear() + '_' + (d.getMonth()+1) + '_' + d.getDate();
+}
+function saveHRV(val) {
+  try {
+    const key = todayKey();
+    const all = getHRVHistory();
+    all[key] = val;
+    // Keep last 60 days only
+    const keys = Object.keys(all).sort();
+    if (keys.length > 60) keys.slice(0, keys.length - 60).forEach(k => delete all[k]);
+    localStorage.setItem('veloiq_hrv', JSON.stringify(all));
+  } catch(e) { console.warn('HRV save failed:', e); }
+}
+function getHRVHistory() {
+  try { return JSON.parse(localStorage.getItem('veloiq_hrv') || '{}'); } catch(e) { return {}; }
+}
+function getTodayHRV() {
+  const all = getHRVHistory();
+  return all[todayKey()] || null;
+}
+function getHRVBaseline() {
+  const all = getHRVHistory();
+  const vals = Object.values(all).map(Number).filter(v => v > 0);
+  if (vals.length < 3) return null;
+  // Use last 7 readings for baseline
+  const recent = vals.slice(-7);
+  return recent.reduce((s,v) => s+v, 0) / recent.length;
+}
+
 function buildToday() {
   const el = document.getElementById('today-content');
   if (!el || !allData.length) return;
@@ -1333,9 +1378,9 @@ function buildToday() {
   const wpm7  = rides7.length  ? avg(rides7.map(wpm))  : wpm28;
 
   // ── Readiness score (0–10) ────────────────────────────────
-  // Factor 1: rest (optimal = 1-2 days since last ride)
+  // Factor 1: rest
   let restScore;
-  if      (daysSinceLast === 0) restScore = 0.5; // rode today already
+  if      (daysSinceLast === 0) restScore = 0.5;
   else if (daysSinceLast === 1) restScore = 1.0;
   else if (daysSinceLast === 2) restScore = 0.95;
   else if (daysSinceLast === 3) restScore = 0.85;
@@ -1343,16 +1388,16 @@ function buildToday() {
   else if (daysSinceLast <= 7)  restScore = 0.55;
   else                          restScore = 0.4;
 
-  // Factor 2: recent load vs chronic load (ATL vs CTL proxy)
+  // Factor 2: recent load vs chronic load
   const recentVsChron = wpm28 > 0 ? wpm7 / wpm28 : 1;
   let loadScore;
-  if      (recentVsChron < 0.85) loadScore = 1.0;  // well rested vs recent baseline
+  if      (recentVsChron < 0.85) loadScore = 1.0;
   else if (recentVsChron < 0.95) loadScore = 0.9;
   else if (recentVsChron < 1.05) loadScore = 0.8;
-  else if (recentVsChron < 1.15) loadScore = 0.65; // slightly overloaded
-  else                            loadScore = 0.5;  // overloaded
+  else if (recentVsChron < 1.15) loadScore = 0.65;
+  else                            loadScore = 0.5;
 
-  // Factor 3: consistency (rides per week over last 4 weeks)
+  // Factor 3: consistency
   const ridesPerWeek4 = rides28.length / 4;
   let consScore;
   if      (ridesPerWeek4 >= 4) consScore = 1.0;
@@ -1361,17 +1406,54 @@ function buildToday() {
   else if (ridesPerWeek4 >= 1) consScore = 0.6;
   else                          consScore = 0.4;
 
-  const readiness = Math.round((restScore * 0.45 + loadScore * 0.35 + consScore * 0.2) * 10);
+  // Factor 4: HRV (today vs personal 7-day baseline)
+  const todayHRV    = getTodayHRV();
+  const hrvBaseline = getHRVBaseline();
+  const hrvHistory  = getHRVHistory();
+  const hrvCount    = Object.keys(hrvHistory).length;
+  let hrvScore = null;
+  let hrvRatio = null;
+  if (todayHRV && hrvBaseline) {
+    hrvRatio = todayHRV / hrvBaseline;
+    if      (hrvRatio >= 1.15) hrvScore = 1.0;
+    else if (hrvRatio >= 1.05) hrvScore = 0.9;
+    else if (hrvRatio >= 0.95) hrvScore = 0.75;
+    else if (hrvRatio >= 0.85) hrvScore = 0.55;
+    else                        hrvScore = 0.35;
+  }
+
+  // Weights shift toward HRV when available
+  let readiness;
+  if (hrvScore !== null) {
+    readiness = Math.round((hrvScore * 0.35 + restScore * 0.30 + loadScore * 0.25 + consScore * 0.10) * 10);
+  } else {
+    readiness = Math.round((restScore * 0.45 + loadScore * 0.35 + consScore * 0.20) * 10);
+  }
   const readinessCap = Math.min(10, Math.max(1, readiness));
 
-  // Readiness color and label
+  // Score breakdown for widget
+  const scoreFactors = [
+    { label: 'HRV',         score: hrvScore  !== null ? Math.round(hrvScore  * 10) : null, weight: hrvScore !== null ? 35 : 0,  color: 'var(--accent3)' },
+    { label: 'Rest',        score: Math.round(restScore  * 10), weight: hrvScore !== null ? 30 : 45, color: 'var(--green)'   },
+    { label: 'Load',        score: Math.round(loadScore  * 10), weight: hrvScore !== null ? 25 : 35, color: 'var(--accent2)' },
+    { label: 'Consistency', score: Math.round(consScore  * 10), weight: hrvScore !== null ? 10 : 20, color: '#a855f7'        },
+  ];
+
   const rColor = readinessCap >= 8 ? 'var(--green)' : readinessCap >= 5 ? 'var(--accent2)' : 'var(--accent)';
   const rLabel = readinessCap >= 8 ? 'READY TO PUSH' : readinessCap >= 5 ? 'MODERATE DAY' : 'RECOVERY DAY';
-  const rDesc  = readinessCap >= 8
-    ? 'Your rest and recent load look ideal. This is a good day for a hard effort.'
-    : readinessCap >= 5
-    ? 'You\'re in reasonable shape but not fully fresh. Aim for a solid steady effort.'
-    : 'Your body could use more recovery. Consider an easy ride or rest today.';
+
+  let rDesc;
+  if (hrvScore !== null) {
+    if      (hrvRatio >= 1.05) rDesc = 'Your HRV is above your baseline — your nervous system is well recovered. Good day to push.';
+    else if (hrvRatio >= 0.95) rDesc = 'Your HRV is near your baseline. You\'re in reasonable shape for a solid steady effort.';
+    else                        rDesc = 'Your HRV is below your baseline — your body is still recovering. Take it easy today.';
+  } else {
+    rDesc = readinessCap >= 8
+      ? 'Your rest and recent load look ideal. Add your HRV below for a more accurate score.'
+      : readinessCap >= 5
+      ? 'You\'re in reasonable shape. Add your morning HRV below to improve this score.'
+      : 'Your body could use more recovery. Consider an easy ride or rest today.';
+  }
 
   // ── Target watts range ────────────────────────────────────
   const avgWatts28 = rides28.length ? avg(rides28.map(d => d._watts)) : avg(allRides.map(d => d._watts));
@@ -1470,7 +1552,33 @@ function buildToday() {
     '<div class="readiness-label" style="color:' + rColor + '">' + rLabel + '</div>' +
     '<div class="readiness-desc">' + rDesc + '</div>' +
     '</div>' +
-    '<div style="margin-top:16px">' +
+
+    // Score breakdown widget
+    '<div class="score-breakdown">' +
+    scoreFactors.filter(f => f.score !== null).map(function(f) {
+      return '<div class="score-factor-row">' +
+        '<span class="score-factor-label">' + f.label + '</span>' +
+        '<div class="score-factor-track"><div class="score-factor-fill" style="width:' + (f.score * 10) + '%;background:' + f.color + '"></div></div>' +
+        '<span class="score-factor-val" style="color:' + f.color + '">' + f.score + '</span>' +
+        '</div>';
+    }).join('') +
+    (scoreFactors[0].score === null ? '<div style="font-size:10px;color:var(--muted);text-align:center;padding:4px 0">Add HRV below to unlock HRV factor</div>' : '') +
+    '</div>' +
+
+    // HRV input
+    '<div style="margin-top:14px;padding-top:14px;border-top:1px solid var(--border)">' +
+    '<div style="font-size:10px;text-transform:uppercase;letter-spacing:1px;color:var(--muted);margin-bottom:6px">Morning HRV' +
+    (todayHRV ? ' <span style="color:var(--green);font-weight:600">&#10003; ' + todayHRV + ' ms logged</span>' : '') +
+    (hrvCount > 0 && hrvBaseline ? ' &nbsp;·&nbsp; <span style="color:var(--muted)">Baseline ' + Math.round(hrvBaseline) + ' ms</span>' : '') +
+    '</div>' +
+    '<div class="hrv-input-wrap">' +
+    '<input id="hrv-val-input" class="hrv-input" type="number" min="10" max="200" placeholder="' + (todayHRV || '—') + '" value="">' +
+    '<button id="hrv-save-btn" class="hrv-submit">Log HRV</button>' +
+    '</div>' +
+    (hrvCount < 3 ? '<div style="font-size:10px;color:var(--muted);margin-top:6px">Log HRV for ' + Math.max(0, 3 - hrvCount) + ' more day' + (3 - hrvCount !== 1 ? 's' : '') + ' to build your baseline.</div>' : '') +
+    '</div>' +
+
+    '<div style="margin-top:14px">' +
     '<div class="today-metric-row"><span class="today-metric-label">Days since last ride</span><span class="today-metric-val">' + daysSinceLast + (daysSinceLast === 1 ? ' day' : ' days') + '</span></div>' +
     '<div class="today-metric-row"><span class="today-metric-label">Rides this week</span><span class="today-metric-val">' + rides7.length + '</span></div>' +
     '<div class="today-metric-row"><span class="today-metric-label">Rides this month</span><span class="today-metric-val">' + rides28.length + '</span></div>' +
@@ -1543,6 +1651,25 @@ function buildToday() {
     '</div>' +
 
     '</div>'; // end chart-grid
+
+  // Wire HRV save button
+  const hrvBtn   = document.getElementById('hrv-save-btn');
+  const hrvInput = document.getElementById('hrv-val-input');
+  if (hrvBtn && hrvInput) {
+    hrvBtn.addEventListener('click', function() {
+      const val = parseFloat(hrvInput.value);
+      if (!val || val < 10 || val > 200) {
+        hrvInput.style.borderColor = 'var(--accent)';
+        setTimeout(() => { hrvInput.style.borderColor = ''; }, 1000);
+        return;
+      }
+      saveHRV(val);
+      buildToday(); // re-render with new HRV incorporated
+    });
+    hrvInput.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') hrvBtn.click();
+    });
+  }
 }
 
 function statBox(label, val, sub) {
