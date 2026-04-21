@@ -1,0 +1,1857 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VeloIQ — Peloton Performance Dashboard</title>
+<meta name="description" content="Free Peloton analytics dashboard. Import your workout CSV and explore cycling performance, streaks, trends, and ride comparisons. Your data stays in your browser.">
+<meta property="og:title" content="VeloIQ — Peloton Performance Dashboard">
+<meta property="og:description" content="Free analytics for Peloton riders. Import your CSV, explore performance trends, compare rides, and track streaks. No account required.">
+<meta name="theme-color" content="#0a0a0f">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Mono:wght@400;500&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,600;1,9..40,300&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0a0a0f;
+    --surface: #12121a;
+    --surface2: #1a1a26;
+    --border: #2a2a3e;
+    --accent: #e8413e;
+    --accent2: #f97316;
+    --accent3: #3b82f6;
+    --green: #22c55e;
+    --text: #f0f0f8;
+    --muted: #6b7280;
+    --label: #9ca3af;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'DM Sans', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    font-size: 14px;
+  }
+
+  /* ── IMPORT OVERLAY ── */
+  #import-screen {
+    position: fixed; inset: 0;
+    background: var(--bg);
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    z-index: 100;
+    gap: 24px;
+  }
+  #import-screen.hidden { display: none; }
+  .logo-title {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 52px;
+    letter-spacing: 4px;
+    color: var(--accent);
+    line-height: 1;
+  }
+  .logo-sub {
+    font-size: 13px;
+    color: var(--muted);
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    margin-top: -8px;
+  }
+  .drop-zone {
+    border: 2px dashed var(--border);
+    border-radius: 16px;
+    width: 480px;
+    padding: 48px 32px;
+    text-align: center;
+    cursor: pointer;
+    transition: all .2s;
+    position: relative;
+  }
+  .drop-zone:hover, .drop-zone.drag-over {
+    border-color: var(--accent);
+    background: rgba(232,65,62,.06);
+  }
+  .drop-zone input[type=file] {
+    position: absolute; inset: 0; opacity: 0; cursor: pointer; width: 100%;
+  }
+  .drop-icon { font-size: 40px; margin-bottom: 12px; }
+  .drop-label { font-size: 16px; font-weight: 600; margin-bottom: 6px; }
+  .drop-hint { color: var(--muted); font-size: 12px; }
+  .import-btn {
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    border-radius: 8px;
+    padding: 12px 32px;
+    font-family: 'DM Sans', sans-serif;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+    letter-spacing: .5px;
+    transition: opacity .15s;
+  }
+  .import-btn:hover { opacity: .88; }
+  .import-btn:disabled { opacity: .4; cursor: not-allowed; }
+  .stored-hint {
+    font-size: 12px;
+    color: var(--muted);
+    display: flex; align-items: center; gap: 6px;
+  }
+  .stored-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); }
+
+  /* ── MAIN SHELL ── */
+  #app { display: none; flex-direction: column; min-height: 100vh; }
+  #app.visible { display: flex; }
+
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 18px 32px;
+    border-bottom: 1px solid var(--border);
+    position: sticky; top: 0;
+    background: var(--bg);
+    z-index: 50;
+  }
+  .header-brand { font-family: 'Bebas Neue', sans-serif; font-size: 28px; color: var(--accent); letter-spacing: 3px; }
+  .header-meta { color: var(--muted); font-size: 12px; }
+  .header-actions { display: flex; gap: 8px; align-items: center; }
+  .btn-sm {
+    border: 1px solid var(--border);
+    background: transparent;
+    color: var(--label);
+    border-radius: 6px;
+    padding: 6px 14px;
+    font-size: 12px;
+    cursor: pointer;
+    font-family: 'DM Sans', sans-serif;
+    transition: all .15s;
+  }
+  .btn-sm:hover { border-color: var(--accent); color: var(--accent); }
+
+  /* ── TABS ── */
+  .tabs {
+    display: flex;
+    gap: 0;
+    border-bottom: 1px solid var(--border);
+    padding: 0 32px;
+    background: var(--bg);
+  }
+  .tab {
+    padding: 14px 22px;
+    cursor: pointer;
+    color: var(--muted);
+    font-size: 13px;
+    font-weight: 500;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+    transition: all .15s;
+    letter-spacing: .3px;
+  }
+  .tab:hover { color: var(--text); }
+  .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+  /* ── CONTENT AREA ── */
+  .content { padding: 28px 32px; flex: 1; }
+
+  /* ── FILTER BAR ── */
+  .filter-bar {
+    display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+    margin-bottom: 24px;
+  }
+  .filter-bar select, .filter-bar input {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 6px;
+    padding: 7px 12px;
+    font-size: 12px;
+    font-family: 'DM Sans', sans-serif;
+    outline: none;
+    cursor: pointer;
+  }
+  .filter-bar select:focus, .filter-bar input:focus { border-color: var(--accent3); }
+  .filter-label { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 1px; }
+
+  /* ── KPI CARDS ── */
+  .kpi-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 14px;
+    margin-bottom: 28px;
+  }
+  .kpi {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 18px 20px;
+    position: relative;
+    overflow: hidden;
+  }
+  .kpi::before {
+    content: '';
+    position: absolute; top: 0; left: 0; right: 0; height: 3px;
+  }
+  .kpi.red::before { background: var(--accent); }
+  .kpi.orange::before { background: var(--accent2); }
+  .kpi.blue::before { background: var(--accent3); }
+  .kpi.green::before { background: var(--green); }
+  .kpi-value {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 36px;
+    line-height: 1;
+    margin-bottom: 4px;
+  }
+  .kpi.red .kpi-value { color: var(--accent); }
+  .kpi.orange .kpi-value { color: var(--accent2); }
+  .kpi.blue .kpi-value { color: var(--accent3); }
+  .kpi.green .kpi-value { color: var(--green); }
+  .kpi-label { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 1px; }
+  .kpi-sub { color: var(--label); font-size: 11px; margin-top: 4px; }
+
+  /* ── CHART CONTAINERS ── */
+  .chart-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin-bottom: 24px;
+  }
+  .chart-grid.single { grid-template-columns: 1fr; }
+  .chart-grid.thirds { grid-template-columns: 1fr 1fr 1fr; }
+  .panel {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+  }
+  .panel-title {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 1.5px;
+    color: var(--muted);
+    margin-bottom: 16px;
+    font-weight: 600;
+  }
+
+  /* ── SVG CHARTS ── */
+  svg { overflow: visible; }
+  .chart-svg { width: 100%; display: block; }
+  .bar-fill { transition: opacity .15s; cursor: pointer; }
+  .bar-fill:hover { opacity: .75; }
+  .axis-label { font-family: 'DM Mono', monospace; font-size: 10px; fill: #6b7280; }
+  .grid-line { stroke: #1e1e2e; stroke-width: 1; }
+  .tooltip {
+    position: absolute;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 14px;
+    font-size: 12px;
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity .15s;
+    z-index: 200;
+    white-space: nowrap;
+  }
+  .tooltip.visible { opacity: 1; }
+  .tt-title { font-weight: 600; margin-bottom: 4px; color: var(--text); }
+  .tt-row { color: var(--muted); display: flex; gap: 12px; }
+  .tt-val { color: var(--text); font-family: 'DM Mono', monospace; }
+
+  /* ── DONUT ── */
+  .donut-wrap { position: relative; display: flex; align-items: center; gap: 24px; }
+  .donut-legend { flex: 1; display: flex; flex-direction: column; gap: 8px; }
+  .legend-row { display: flex; align-items: center; gap: 8px; font-size: 12px; cursor: pointer; }
+  .legend-dot { width: 10px; height: 10px; border-radius: 2px; flex-shrink: 0; }
+  .legend-name { flex: 1; color: var(--label); }
+  .legend-val { font-family: 'DM Mono', monospace; color: var(--text); font-size: 11px; }
+
+  /* ── STREAK / HEATMAP ── */
+  .heatmap-grid {
+    display: grid;
+    grid-template-columns: repeat(53, 1fr);
+    gap: 2px;
+  }
+  .hm-cell {
+    aspect-ratio: 1;
+    border-radius: 2px;
+    background: var(--surface2);
+    cursor: pointer;
+    transition: transform .1s;
+  }
+  .hm-cell:hover { transform: scale(1.4); z-index: 2; position: relative; }
+  .hm-months {
+    display: flex; font-size: 9px; color: var(--muted);
+    font-family: 'DM Mono', monospace;
+    margin-bottom: 4px;
+  }
+
+  /* ── TABLE ── */
+  .table-wrap { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; font-size: 12px; }
+  thead th {
+    padding: 10px 12px;
+    text-align: left;
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    color: var(--muted);
+    border-bottom: 1px solid var(--border);
+    cursor: pointer;
+    user-select: none;
+    white-space: nowrap;
+  }
+  thead th:hover { color: var(--text); }
+  thead th .sort-arrow { margin-left: 4px; opacity: .5; }
+  tbody tr { border-bottom: 1px solid rgba(42,42,62,.5); transition: background .1s; }
+  tbody tr:hover { background: var(--surface2); }
+  tbody td { padding: 10px 12px; color: var(--label); }
+  tbody td:first-child { color: var(--text); font-family: 'DM Mono', monospace; font-size: 11px; }
+  .badge {
+    display: inline-block; padding: 2px 8px; border-radius: 4px;
+    font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .5px;
+  }
+  .badge-cycling { background: rgba(232,65,62,.2); color: var(--accent); }
+  .badge-walking { background: rgba(34,197,94,.2); color: var(--green); }
+  .badge-strength { background: rgba(249,115,22,.2); color: var(--accent2); }
+  .badge-stretching { background: rgba(59,130,246,.15); color: var(--accent3); }
+  .badge-meditation { background: rgba(168,85,247,.2); color: #a855f7; }
+  .badge-other { background: rgba(107,114,128,.2); color: var(--muted); }
+
+  .pager { display: flex; gap: 8px; align-items: center; justify-content: flex-end; margin-top: 12px; font-size: 12px; color: var(--muted); }
+  .pager button { background: var(--surface2); border: 1px solid var(--border); color: var(--text); border-radius: 4px; padding: 4px 10px; cursor: pointer; font-size: 11px; }
+  .pager button:disabled { opacity: .35; cursor: not-allowed; }
+
+  /* ── PROGRESS BAR ── */
+  .prog-track { background: var(--surface2); border-radius: 99px; height: 6px; margin-top: 6px; }
+  .prog-fill { height: 6px; border-radius: 99px; transition: width .6s; }
+
+  /* ── EMPTY ── */
+  .empty { text-align: center; padding: 60px 20px; color: var(--muted); }
+  .empty-icon { font-size: 40px; margin-bottom: 12px; }
+
+  /* ── LINE CHART ── */
+  .line-path { fill: none; stroke-width: 2; }
+  .line-dot { cursor: pointer; }
+  .line-dot:hover { r: 5; }
+
+  /* ── RESPONSIVE ── */
+  /* ── HELP ── */
+  .help-section { margin-bottom:28px; }
+  .help-section-title { font-size:11px;text-transform:uppercase;letter-spacing:2px;color:var(--muted);font-weight:600;margin-bottom:12px; }
+  .help-card { background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:18px 20px;margin-bottom:10px; }
+  .help-step-grid { display:flex;flex-direction:column;gap:18px; }
+  .help-step { display:flex;gap:16px;align-items:flex-start; }
+  .help-step-num { font-family:'Bebas Neue',sans-serif;font-size:28px;color:var(--accent);line-height:1;flex-shrink:0;width:36px; }
+  .help-step-title { font-size:13px;font-weight:600;color:var(--text);margin-bottom:5px; }
+  .help-step-body { font-size:12px;color:var(--label);line-height:1.7; }
+  .help-tab-row { display:flex;gap:14px;align-items:flex-start; }
+  .help-tab-badge { font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.8px;padding:4px 10px;border-radius:5px;flex-shrink:0;margin-top:2px; }
+  .help-tab-desc { font-size:12px;color:var(--label);line-height:1.75; }
+  .help-tip { background:rgba(59,130,246,.08);border-left:2px solid var(--accent3);padding:8px 12px;margin-top:10px;border-radius:0 6px 6px 0;font-size:11px;color:var(--label);line-height:1.6; }
+  .help-code { background:var(--surface2);border:1px solid var(--border);border-radius:4px;padding:1px 6px;font-family:'DM Mono',monospace;font-size:11px;color:var(--text); }
+  .help-table { width:100%;border-collapse:collapse;font-size:12px; }
+  .help-table thead th { text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:1px;color:var(--muted);padding:8px 10px;border-bottom:1px solid var(--border); }
+  .help-table tbody tr { border-bottom:1px solid rgba(42,42,62,.4); }
+  .help-table tbody tr:hover { background:var(--surface2); }
+  .help-table tbody td { padding:9px 10px;color:var(--label);line-height:1.5; }
+  .help-table tbody td:first-child { color:var(--text); }
+  .help-tip-title { font-size:12px;font-weight:600;color:var(--text);margin-bottom:6px; }
+  .help-tip-body { font-size:11px;color:var(--label);line-height:1.65; }
+
+  /* ── COMPARE ── */
+  .cmp-check { width: 16px; height: 16px; accent-color: var(--accent); cursor: pointer; }
+  tr.cmp-selected { background: rgba(232,65,62,.08) !important; }
+  .cmp-bar-wrap { display:flex; align-items:center; gap:8px; }
+  .cmp-bar-track { flex:1; height:6px; background:var(--surface2); border-radius:99px; min-width:60px; }
+  .cmp-bar-fill { height:6px; border-radius:99px; }
+  .cmp-metric-row { display:grid; gap:0; border-bottom:1px solid var(--border); }
+  .cmp-metric-row:last-child { border-bottom:none; }
+  .cmp-metric-label { font-size:10px;text-transform:uppercase;letter-spacing:1px;color:var(--muted);padding:10px 0 4px; grid-column:1/-1; }
+  .cmp-cell { padding:6px 0 10px; font-size:13px; }
+  .cmp-win { color:var(--green) !important; }
+  .cmp-lose { color: #4b5563 !important; }
+  .cmp-neutral { color:var(--label); }
+  .verdict-card { display:flex;align-items:center;gap:14px;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px 18px; }
+  .verdict-name { font-size:12px;color:var(--muted); }
+  .verdict-score { font-family:'Bebas Neue',sans-serif;font-size:32px;line-height:1; }
+  .verdict-sep { color:var(--border);font-size:24px;padding:0 6px; }
+  .compare-select-bar { background:var(--surface2); border:1px solid var(--accent); border-radius:8px; padding:10px 16px; display:flex; align-items:center; justify-content:space-between; margin-bottom:16px; }
+
+  @media (max-width: 900px) {
+    .chart-grid { grid-template-columns: 1fr; }
+    .chart-grid.thirds { grid-template-columns: 1fr 1fr; }
+    .content { padding: 20px 16px; }
+    .drop-zone { width: 90vw; }
+  }
+</style>
+</head>
+<body>
+
+<!-- Import Screen -->
+<div id="import-screen">
+  <div style="text-align:center">
+    <div class="logo-title">VELO IQ</div>
+    <div class="logo-sub">Peloton Performance Dashboard</div>
+  </div>
+
+  <div class="drop-zone" id="drop-zone">
+    <div class="drop-icon" id="drop-icon">📊</div>
+    <div class="drop-label" id="drop-label">Drop your Peloton CSV here</div>
+    <div class="drop-hint">or click to browse · workouts_XXXXX.csv</div>
+  </div>
+  <input type="file" id="file-input" accept=".csv,.CSV" style="display:none">
+  <div id="import-status" style="min-height:20px;font-size:12px;text-align:center"></div>
+  <button class="import-btn" id="import-btn" disabled>Import Workouts</button>
+
+  <!-- How to export -->
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px 20px;width:420px;font-size:12px">
+    <div style="font-size:10px;text-transform:uppercase;letter-spacing:1.5px;color:var(--muted);margin-bottom:10px;font-weight:600">How to export from Peloton</div>
+    <div style="display:flex;flex-direction:column;gap:7px;color:var(--label);line-height:1.5">
+      <div><span style="color:var(--accent);font-family:'DM Mono',monospace;margin-right:8px">1</span>Log in at <span style="color:var(--text);font-family:'DM Mono',monospace">members.onepeloton.com</span></div>
+      <div><span style="color:var(--accent);font-family:'DM Mono',monospace;margin-right:8px">2</span>Go to <strong style="color:var(--text)">Profile → Workouts</strong></div>
+      <div><span style="color:var(--accent);font-family:'DM Mono',monospace;margin-right:8px">3</span>Click <strong style="color:var(--text)">Download Workouts</strong> — Peloton emails you the CSV</div>
+      <div><span style="color:var(--accent);font-family:'DM Mono',monospace;margin-right:8px">4</span>Import the file above once it arrives</div>
+    </div>
+  </div>
+
+  <!-- Privacy badge -->
+  <div style="display:flex;align-items:center;gap:8px;font-size:11px;color:var(--muted)">
+    <span style="font-size:14px">🔒</span>
+    <span>Your data <strong style="color:var(--text)">never leaves your device</strong> — everything is stored locally in your browser</span>
+  </div>
+
+  <div class="stored-hint" id="stored-hint" style="display:none">
+    <div class="stored-dot"></div>
+    <span id="stored-text"></span>
+    <button class="btn-sm" id="load-stored-btn">Load Saved Data</button>
+  </div>
+</div>
+
+<!-- Main App -->
+<div id="app">
+  <header>
+    <div>
+      <div class="header-brand">VELO IQ</div>
+      <div class="header-meta" id="header-meta"></div>
+    </div>
+    <div class="tabs" style="border:none;padding:0">
+      <div class="tab active" data-tab="overview">Overview</div>
+      <div class="tab" data-tab="cycling">Cycling</div>
+      <div class="tab" data-tab="activity">Activity</div>
+      <div class="tab" data-tab="log">Workout Log</div>
+      <div class="tab" data-tab="compare">Compare</div>
+      <div class="tab" data-tab="help">Help</div>
+    </div>
+    <div class="header-actions">
+      <button class="btn-sm" id="re-import-btn">↑ Import New</button>
+      <button class="btn-sm" id="clear-btn">Clear Data</button>
+    </div>
+  </header>
+
+  <!-- OVERVIEW TAB -->
+  <div class="content tab-content" id="tab-overview">
+    <div class="kpi-grid" id="kpi-grid"></div>
+    <div class="chart-grid">
+      <div class="panel">
+        <div class="panel-title">Workouts by Discipline</div>
+        <div class="donut-wrap" id="donut-wrap"></div>
+      </div>
+      <div class="panel">
+        <div class="panel-title">Monthly Workout Volume</div>
+        <svg class="chart-svg" id="monthly-bar" height="200"></svg>
+      </div>
+    </div>
+    <div class="chart-grid single">
+      <div class="panel">
+        <div class="panel-title">Activity Heatmap — Last 52 Weeks</div>
+        <div class="hm-months" id="hm-months"></div>
+        <div class="heatmap-grid" id="heatmap"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- CYCLING TAB -->
+  <div class="content tab-content" id="tab-cycling" style="display:none">
+    <div class="filter-bar">
+      <span class="filter-label">Filter:</span>
+      <select id="cy-instructor">
+        <option value="">All Instructors</option>
+      </select>
+      <select id="cy-type">
+        <option value="">All Types</option>
+      </select>
+      <select id="cy-length">
+        <option value="">Any Length</option>
+        <option value="20">20 min</option>
+        <option value="30">30 min</option>
+        <option value="45">45 min</option>
+        <option value="60">60 min</option>
+      </select>
+      <select id="cy-year">
+        <option value="">All Years</option>
+      </select>
+    </div>
+    <div class="kpi-grid" id="cy-kpis"></div>
+    <div class="chart-grid">
+      <div class="panel">
+        <div class="panel-title">Output Trend (Avg Watts · 4-week rolling)</div>
+        <svg class="chart-svg" id="watts-line" height="200"></svg>
+      </div>
+      <div class="panel">
+        <div class="panel-title">Output Distribution</div>
+        <svg class="chart-svg" id="output-hist" height="200"></svg>
+      </div>
+    </div>
+    <div class="chart-grid thirds">
+      <div class="panel">
+        <div class="panel-title">Top Instructors by Output</div>
+        <svg class="chart-svg" id="instructor-bar" height="200"></svg>
+      </div>
+      <div class="panel">
+        <div class="panel-title">Best Rides by Output</div>
+        <div id="best-rides" style="overflow-y:auto;max-height:220px"></div>
+      </div>
+      <div class="panel">
+        <div class="panel-title">Avg Cadence by Length</div>
+        <svg class="chart-svg" id="cadence-bar" height="200"></svg>
+      </div>
+    </div>
+  </div>
+
+  <!-- ACTIVITY TAB -->
+  <div class="content tab-content" id="tab-activity" style="display:none">
+    <div class="kpi-grid" id="act-kpis"></div>
+    <div class="chart-grid">
+      <div class="panel">
+        <div class="panel-title">Calories Burned — Monthly</div>
+        <svg class="chart-svg" id="cal-bar" height="200"></svg>
+      </div>
+      <div class="panel">
+        <div class="panel-title">Workout Duration Breakdown</div>
+        <svg class="chart-svg" id="dur-bar" height="200"></svg>
+      </div>
+    </div>
+    <div class="chart-grid single">
+      <div class="panel">
+        <div class="panel-title">Streak History — Consecutive Active Days</div>
+        <div id="streak-vis"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- LOG TAB -->
+  <div class="content tab-content" id="tab-log" style="display:none">
+    <div class="filter-bar">
+      <span class="filter-label">Search:</span>
+      <input type="text" id="log-search" placeholder="Title, instructor, type…" style="width:220px">
+      <select id="log-disc">
+        <option value="">All Disciplines</option>
+      </select>
+      <select id="log-year-f">
+        <option value="">All Years</option>
+      </select>
+    </div>
+    <div class="table-wrap">
+      <table id="log-table">
+        <thead>
+          <tr>
+            <th style="width:36px"><span style="font-size:10px;color:var(--muted)">CMP</span></th>
+            <th data-col="date">Date <span class="sort-arrow">↕</span></th>
+            <th data-col="discipline">Discipline <span class="sort-arrow">↕</span></th>
+            <th data-col="length">Min <span class="sort-arrow">↕</span></th>
+            <th data-col="title">Title</th>
+            <th data-col="instructor">Instructor</th>
+            <th data-col="output">Output <span class="sort-arrow">↕</span></th>
+            <th data-col="watts">Watts <span class="sort-arrow">↕</span></th>
+            <th data-col="calories">Cal <span class="sort-arrow">↕</span></th>
+            <th data-col="hr">HR <span class="sort-arrow">↕</span></th>
+          </tr>
+        </thead>
+        <tbody id="log-body"></tbody>
+      </table>
+    </div>
+    <div class="pager">
+      <span id="pager-info"></span>
+      <button id="pg-prev">← Prev</button>
+      <button id="pg-next">Next →</button>
+    </div>
+  </div>
+  <!-- HELP TAB -->
+  <div class="content tab-content" id="tab-help" style="display:none">
+    <div style="max-width:860px;margin:0 auto">
+
+      <!-- Hero -->
+      <div style="margin-bottom:36px">
+        <div style="font-family:'Bebas Neue',sans-serif;font-size:42px;color:var(--accent);letter-spacing:3px;line-height:1">VELO IQ</div>
+        <div style="font-size:13px;color:var(--muted);letter-spacing:2px;text-transform:uppercase;margin-top:4px">Performance Dashboard · User Guide</div>
+        <div style="height:2px;background:linear-gradient(90deg,var(--accent),transparent);margin-top:14px;border-radius:2px"></div>
+      </div>
+
+      <!-- Getting Started -->
+      <div class="help-section">
+        <div class="help-section-title">🚀 Getting Started</div>
+        <div class="help-card">
+          <div class="help-step-grid">
+            <div class="help-step">
+              <div class="help-step-num">01</div>
+              <div>
+                <div class="help-step-title">Export from Peloton</div>
+                <div class="help-step-body">Log in at <span class="help-code">members.onepeloton.com</span>, go to <strong>Profile → Workouts</strong>, then click <strong>Download Workouts</strong>. Peloton will email you a <span class="help-code">.csv</span> file — this usually arrives within a few minutes but can take up to an hour. The file includes your complete workout history.</div>
+              </div>
+            </div>
+            <div class="help-step">
+              <div class="help-step-num">02</div>
+              <div>
+                <div class="help-step-title">Import Your File</div>
+                <div class="help-step-body">On the import screen, click the drop zone or drag your CSV onto it. The dashboard validates the file, then displays a status — <span style="color:var(--green)">green = ready</span>. Hit <strong>Import Workouts</strong> to load.</div>
+              </div>
+            </div>
+            <div class="help-step">
+              <div class="help-step-num">03</div>
+              <div>
+                <div class="help-step-title">Data Persists Automatically</div>
+                <div class="help-step-body">Your workouts are saved to browser local storage. <strong>Refreshing the page restores your data instantly</strong> — no re-import needed. Use <strong>Import New</strong> in the header to load a fresh export anytime.</div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Tabs Guide -->
+      <div class="help-section">
+        <div class="help-section-title">📊 Dashboard Tabs</div>
+
+        <div class="help-card">
+          <div class="help-tab-row">
+            <div class="help-tab-badge" style="background:rgba(232,65,62,.15);color:var(--accent)">Overview</div>
+            <div class="help-tab-desc">Your all-time summary. Shows total workouts, hours, calories, cycling miles, best streak, and average watts. Includes a discipline donut chart, monthly volume bar chart, and a 52-week activity heatmap showing workout density by day.</div>
+          </div>
+        </div>
+
+        <div class="help-card">
+          <div class="help-tab-row">
+            <div class="help-tab-badge" style="background:rgba(249,115,22,.15);color:var(--accent2)">Cycling</div>
+            <div class="help-tab-desc">Cycling-specific analytics. Filter by instructor, ride type, duration, and year. Key metrics include Avg Watts, Watts/Min, Output, Output/Min, total miles, and heart rate. Charts show your watt trend over time, output distribution, top instructors by watts, best rides, and cadence by ride length.
+              <div class="help-tip">💡 <strong>Watts/Min and Output/Min</strong> are the fairest way to compare rides of different lengths — a 20-min ride competes equally with a 45-min ride on these metrics.</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="help-card">
+          <div class="help-tab-row">
+            <div class="help-tab-badge" style="background:rgba(34,197,94,.15);color:var(--green)">Activity</div>
+            <div class="help-tab-desc">Cross-discipline view. Total calories, walk count and mileage, strength session count, and average session duration. Monthly calorie chart, duration breakdown by bucket, and your top-10 longest consecutive-day streaks.</div>
+          </div>
+        </div>
+
+        <div class="help-card">
+          <div class="help-tab-row">
+            <div class="help-tab-badge" style="background:rgba(59,130,246,.15);color:var(--accent3)">Workout Log</div>
+            <div class="help-tab-desc">Full searchable, sortable history of every workout. Filter by keyword, discipline, or year. Click any column header to sort. Navigate pages with Prev / Next.
+              <div class="help-tip">💡 Use the <strong>CMP checkbox</strong> column to select 2–3 rides, then click <strong>Compare →</strong> to jump straight to a side-by-side analysis.</div>
+            </div>
+          </div>
+        </div>
+
+        <div class="help-card">
+          <div class="help-tab-row">
+            <div class="help-tab-badge" style="background:rgba(168,85,247,.15);color:#a855f7">Compare</div>
+            <div class="help-tab-desc">Head-to-head comparison of 2–3 selected rides. Shows a <strong>Performance Radar</strong> (spider chart) normalizing 6 metrics against your personal bests, a <strong>metric table</strong> with winner highlighted green per row, and a <strong>verdict card</strong> showing which ride won the most categories.</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Metrics Reference -->
+      <div class="help-section">
+        <div class="help-section-title">📐 Metrics Reference</div>
+        <div class="help-card">
+          <table class="help-table">
+            <thead><tr><th>Metric</th><th>What It Means</th><th>Where It Appears</th></tr></thead>
+            <tbody>
+              <tr><td><span class="help-code">Avg Watts</span></td><td>Average power output during the ride in watts</td><td>Cycling, Compare</td></tr>
+              <tr><td><span class="help-code">Watts / Min</span></td><td>Avg watts ÷ ride duration — normalizes effort across ride lengths</td><td>Cycling, Compare</td></tr>
+              <tr><td><span class="help-code">Output (kJ)</span></td><td>Total energy produced in kilojoules — the Peloton "score"</td><td>Cycling, Compare, Log</td></tr>
+              <tr><td><span class="help-code">Output / Min</span></td><td>kJ ÷ ride duration — the fairest cross-length performance metric</td><td>Cycling, Compare</td></tr>
+              <tr><td><span class="help-code">Avg Cadence</span></td><td>Average pedal revolutions per minute (RPM)</td><td>Cycling, Compare</td></tr>
+              <tr><td><span class="help-code">Avg Heart Rate</span></td><td>Average BPM during the ride (only available on rides where HR was recorded)</td><td>Cycling, Compare, Log</td></tr>
+              <tr><td><span class="help-code">Calories</span></td><td>Estimated calories burned — Peloton-calculated based on HR and output</td><td>All tabs</td></tr>
+              <tr><td><span class="help-code">Distance (mi)</span></td><td>Peloton-estimated virtual distance for cycling, GPS distance for walks</td><td>Cycling, Activity, Log</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Tips & Gotchas -->
+      <div class="help-section">
+        <div class="help-section-title">⚡ Tips & Gotchas</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+          <div class="help-card">
+            <div class="help-tip-title">Scenic &amp; Stretching rides show 0 watts</div>
+            <div class="help-tip-body">Peloton doesn't record power for scenic rides, stretches, or meditations. These are filtered out of cycling analytics automatically but still appear in the log and contribute to calorie/time totals.</div>
+          </div>
+          <div class="help-card">
+            <div class="help-tip-title">Heart rate data is partial</div>
+            <div class="help-tip-body">HR is only recorded if you wore a heart rate monitor. The Cycling tab's HR KPI shows how many rides had HR data — if it's low, HR comparisons won't be representative.</div>
+          </div>
+          <div class="help-card">
+            <div class="help-tip-title">Comparing rides of different lengths</div>
+            <div class="help-tip-body">Always use <strong>Watts/Min</strong> and <strong>Output/Min</strong> as the primary comparison metrics. Raw output always favors longer rides — a 45-min easy ride will outscore a 20-min max effort.</div>
+          </div>
+          <div class="help-card">
+            <div class="help-tip-title">Data stays in your browser only</div>
+            <div class="help-tip-body">Nothing is sent to any server. All data is stored in your browser's local storage. Clearing browser data or using a different browser will require re-importing. Incognito mode does not persist data.</div>
+          </div>
+          <div class="help-card">
+            <div class="help-tip-title">Updating with new workouts</div>
+            <div class="help-tip-body">Request a fresh export from Peloton and use <strong>Import New</strong> in the header. The new file replaces the old data completely — Peloton's export always includes your full history.</div>
+          </div>
+          <div class="help-card">
+            <div class="help-tip-title">Charts look wrong on first load</div>
+            <div class="help-tip-body">If charts appear empty or squashed, try clicking to a different tab and back — this triggers a redraw with correct dimensions. This is a known browser layout timing edge case.</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Browser compat note -->
+      <div class="help-section">
+        <div class="help-section-title">🌐 Browser Compatibility</div>
+        <div class="help-card">
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:12px;text-align:center">
+            <div><div style="font-size:22px;margin-bottom:4px">✅</div><div style="font-size:12px;color:var(--text);font-weight:600">Chrome</div><div style="font-size:11px;color:var(--muted)">Recommended</div></div>
+            <div><div style="font-size:22px;margin-bottom:4px">✅</div><div style="font-size:12px;color:var(--text);font-weight:600">Safari</div><div style="font-size:11px;color:var(--muted)">iOS &amp; macOS</div></div>
+            <div><div style="font-size:22px;margin-bottom:4px">✅</div><div style="font-size:12px;color:var(--text);font-weight:600">Firefox</div><div style="font-size:11px;color:var(--muted)">Fully supported</div></div>
+            <div><div style="font-size:22px;margin-bottom:4px">✅</div><div style="font-size:12px;color:var(--text);font-weight:600">Edge</div><div style="font-size:11px;color:var(--muted)">Fully supported</div></div>
+          </div>
+          <div class="help-tip" style="margin-top:14px">⚠️ <strong>Incognito / Private mode</strong> does not save data between sessions — you will need to re-import each visit. Use a regular browser window for the best experience.</div>
+          <div class="help-tip" style="margin-top:8px">📱 <strong>iPhone / iPad:</strong> Open in Safari and tap Share → "Add to Home Screen" for a full-screen app experience. Data persists as long as Safari storage is not cleared.</div>
+        </div>
+      </div>
+
+      <!-- Footer -->
+      <div style="margin-top:40px;padding-top:20px;border-top:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px">
+        <div style="font-size:11px;color:var(--muted)">VeloIQ · Free Peloton Analytics · <a href="https://github.com" style="color:var(--accent3);text-decoration:none" target="_blank">View on GitHub</a></div>
+        <div style="display:flex;align-items:center;gap:6px;font-size:11px;color:var(--muted)">
+          <span>🔒</span><span>Data stays in your browser · No account required · Nothing leaves your device</span>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- COMPARE TAB -->
+  <div class="content tab-content" id="tab-compare" style="display:none">
+    <div id="compare-empty" style="text-align:center;padding:60px 20px;color:var(--muted)">
+      <div style="font-size:36px;margin-bottom:14px">⚖️</div>
+      <div style="font-size:15px;font-weight:600;color:var(--text);margin-bottom:8px">No workouts selected</div>
+      <div style="font-size:13px">Go to <strong style="color:var(--accent)">Workout Log</strong> and check 2–3 rides to compare them here.</div>
+    </div>
+    <div id="compare-content" style="display:none">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px">
+        <div style="font-size:11px;text-transform:uppercase;letter-spacing:1.5px;color:var(--muted)">Comparing <span id="cmp-count"></span> workouts</div>
+        <button class="btn-sm" id="cmp-clear-btn">✕ Clear Selection</button>
+      </div>
+      <div id="cmp-verdict" style="margin-bottom:20px"></div>
+      <div class="chart-grid" id="cmp-grid">
+        <div class="panel">
+          <div class="panel-title">Performance Radar</div>
+          <div style="display:flex;justify-content:center;align-items:center;flex-direction:column">
+            <svg id="cmp-radar" viewBox="0 0 340 300" width="340" height="300"></svg>
+            <div id="cmp-radar-legend" style="display:flex;gap:20px;margin-top:8px;font-size:12px"></div>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="panel-title">Head-to-Head Metrics</div>
+          <div id="cmp-table"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="tooltip" id="tooltip"></div>
+
+<script>
+// ── STATE ──────────────────────────────────────────────────────
+let allData = [];
+let filteredCy = [];
+let logPage = 0;
+const PAGE_SIZE = 50;
+let logSort = { col: 'date', dir: -1 };
+let logSearch = '', logDisc = '', logYearF = '';
+let compareSelected = new Set(); // indices into allData
+
+// ── IMPORT ────────────────────────────────────────────────────
+const fileInput  = document.getElementById('file-input');
+const importBtn  = document.getElementById('import-btn');
+const dropZone   = document.getElementById('drop-zone');
+const dropLabel  = document.getElementById('drop-label');
+const dropIcon   = document.getElementById('drop-icon');
+const importStatus = document.getElementById('import-status');
+let pendingFile  = null;
+
+function setImportStatus(msg, color) {
+  importStatus.textContent = msg;
+  importStatus.style.color = color || 'var(--muted)';
+}
+
+function stageFile(file) {
+  if (!file) return;
+  // Validate file type by name since MIME type for CSV is inconsistent across OS
+  if (!file.name.toLowerCase().endsWith('.csv')) {
+    setImportStatus('⚠ File must be a .csv — please select your Peloton workouts export.', '#f97316');
+    importBtn.disabled = true;
+    return;
+  }
+  pendingFile = file;
+  dropLabel.textContent = file.name;
+  dropIcon.textContent = '✓';
+  importBtn.disabled = false;
+  setImportStatus(`Ready · ${(file.size / 1024).toFixed(1)} KB`, 'var(--green)');
+}
+
+// Click on drop-zone opens file picker
+dropZone.addEventListener('click', () => {
+  // Reset value so selecting the same file again still fires change
+  fileInput.value = '';
+  fileInput.click();
+});
+
+// File selected via picker
+fileInput.addEventListener('change', e => {
+  stageFile(e.target.files[0]);
+});
+
+// Drag-and-drop
+dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+dropZone.addEventListener('dragleave', e => { if (!dropZone.contains(e.relatedTarget)) dropZone.classList.remove('drag-over'); });
+dropZone.addEventListener('drop', e => {
+  e.preventDefault();
+  dropZone.classList.remove('drag-over');
+  stageFile(e.dataTransfer.files[0]);
+});
+
+importBtn.addEventListener('click', () => {
+  if (pendingFile) {
+    importBtn.disabled = true;
+    importBtn.textContent = 'Importing…';
+    setImportStatus('Reading file…', 'var(--muted)');
+    readCSV(pendingFile);
+  }
+});
+
+// ── AUTO-RESTORE FROM LOCALSTORAGE ON REFRESH ────────────────
+(function() {
+  var raw;
+  try { raw = localStorage.getItem('veloiq_data'); } catch(e) { return; }
+  if (!raw) return;
+  var parsed;
+  try { parsed = JSON.parse(raw); } catch(e) {
+    localStorage.removeItem('veloiq_data');
+    localStorage.removeItem('veloiq_meta');
+    return;
+  }
+  if (!Array.isArray(parsed) || parsed.length === 0) return;
+  // Detect old bloated format (has raw CSV keys) — wipe and force re-import
+  if (Object.prototype.hasOwnProperty.call(parsed[0], 'Workout Timestamp')) {
+    localStorage.removeItem('veloiq_data');
+    localStorage.removeItem('veloiq_meta');
+    return;
+  }
+  try {
+    allData = parsed.map(function(r) { return expandRow(r); });
+    launchApp();
+  } catch(e2) {
+    localStorage.removeItem('veloiq_data');
+    localStorage.removeItem('veloiq_meta');
+  }
+})();
+
+// Wire up the "Load Saved Data" button (shown when user manually hits Import New)
+var loadStoredBtn = document.getElementById('load-stored-btn');
+var storedMeta = JSON.parse(localStorage.getItem('veloiq_meta') || '{}');
+if (localStorage.getItem('veloiq_data') && loadStoredBtn) {
+  document.getElementById('stored-hint').style.display = 'flex';
+  document.getElementById('stored-text').textContent =
+    'Saved: ' + (storedMeta.count || '?') + ' workouts · ' + (storedMeta.date || '');
+  loadStoredBtn.addEventListener('click', function() {
+    try {
+      var r2 = JSON.parse(localStorage.getItem('veloiq_data'));
+      allData = r2.map(function(r) { return expandRow(r); });
+      launchApp();
+    } catch(e) { alert('Could not load saved data. Please re-import your CSV.'); }
+  });
+}
+
+document.getElementById('re-import-btn').addEventListener('click', () => {
+  document.getElementById('app').classList.remove('visible');
+  document.getElementById('import-screen').classList.remove('hidden');
+});
+document.getElementById('clear-btn').addEventListener('click', () => {
+  if (confirm('Delete all saved workout data?\n\nThis will remove your imported workouts from this browser. You will need to re-import your Peloton CSV to use VeloIQ again.\n\nThis cannot be undone.')) {
+    localStorage.removeItem('veloiq_data');
+    localStorage.removeItem('veloiq_meta');
+    location.reload();
+  }
+});
+
+function readCSV(file) {
+  const reader = new FileReader();
+
+  reader.onload = e => {
+    try {
+      const text = e.target.result;
+
+      // Quick sanity-check: must contain the Peloton header sentinel
+      if (!text.includes('Workout Timestamp') || !text.includes('Fitness Discipline')) {
+        setImportStatus('⚠ This does not look like a Peloton workouts CSV. Please export from your Peloton profile.', '#f97316');
+        importBtn.disabled = false;
+        importBtn.textContent = 'Import Workouts';
+        return;
+      }
+
+      setImportStatus('Parsing workouts…', 'var(--muted)');
+      const rows = parseCSV(text);
+
+      if (!rows || rows.length === 0) {
+        setImportStatus('⚠ No valid workouts found in this file. Check that you exported the full workout history.', '#f97316');
+        importBtn.disabled = false;
+        importBtn.textContent = 'Import Workouts';
+        return;
+      }
+
+      allData = rows;
+      setImportStatus(`Saving ${rows.length} workouts…`, 'var(--muted)');
+
+      // Store lean fields only — avoids localStorage quota errors
+      const lean = rows.map(leanRow);
+      let saved = false;
+      try {
+        localStorage.setItem('veloiq_data', JSON.stringify(lean));
+        localStorage.setItem('veloiq_meta', JSON.stringify({ count: rows.length, date: new Date().toLocaleDateString() }));
+        saved = true;
+      } catch(err) {
+        // Quota exceeded — still launch, just warn
+        console.warn('localStorage save failed:', err);
+        setImportStatus('⚠ Data too large to save locally — will not persist on refresh.', '#f97316');
+      }
+
+      if (saved) setImportStatus(`✓ ${rows.length} workouts imported`, 'var(--green)');
+      setTimeout(() => launchApp(), saved ? 300 : 1500);
+
+    } catch(parseErr) {
+      console.error('CSV parse error:', parseErr);
+      setImportStatus('⚠ Failed to parse file: ' + parseErr.message, '#e8413e');
+      importBtn.disabled = false;
+      importBtn.textContent = 'Import Workouts';
+    }
+  };
+
+  reader.onerror = () => {
+    setImportStatus('⚠ Could not read file — try again or use a different browser.', '#e8413e');
+    importBtn.disabled = false;
+    importBtn.textContent = 'Import Workouts';
+  };
+
+  reader.readAsText(file, 'UTF-8');
+}
+
+// Only the fields the dashboard actually needs — strips all raw CSV keys
+function leanRow(r) {
+  return {
+    _ts:   r._date.getTime(),
+    _len:  r._length,
+    _disc: r._discipline,
+    _type: r._type,
+    _inst: r._instructor,
+    _out:  r._output,
+    _w:    r._watts,
+    _cal:  r._calories,
+    _hr:   r._hr,
+    _cad:  r._cadence,
+    _dist: r._distance,
+    _res:  r._resistance,
+    _tit:  r._title,
+    _live: r['Live/On-Demand'] || ''
+  };
+}
+
+// Expand a lean row back to the shape the rest of the code expects
+function expandRow(r) {
+  const d = new Date(r._ts);
+  return {
+    _date:       d,
+    _year:       d.getFullYear(),
+    _month:      d.getMonth(),
+    _length:     r._len,
+    _discipline: r._disc,
+    _type:       r._type,
+    _instructor: r._inst,
+    _output:     r._out,
+    _watts:      r._w,
+    _calories:   r._cal,
+    _hr:         r._hr,
+    _cadence:    r._cad,
+    _distance:   r._dist,
+    _resistance: r._res,
+    _title:      r._tit,
+    'Live/On-Demand': r._live
+  };
+}
+
+function parseCSV(text) {
+  const lines = text.trim().split('\n');
+  const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''));
+  return lines.slice(1).map(line => {
+    const cols = splitCSVLine(line);
+    const obj = {};
+    headers.forEach((h, i) => obj[h] = (cols[i] || '').trim().replace(/^"|"$/g, ''));
+    const rawDate = obj['Workout Timestamp'] || '';
+    const dateStr = rawDate.replace(/\s\(.*\)/, '');
+    obj._date = new Date(dateStr);
+    obj._year = obj._date.getFullYear();
+    obj._month = obj._date.getMonth();
+    obj._length = parseInt(obj['Length (minutes)']) || 0;
+    obj._discipline = obj['Fitness Discipline'] || 'Other';
+    obj._type = obj['Type'] || '';
+    obj._instructor = obj['Instructor Name'] || '';
+    obj._output = parseFloat(obj['Total Output']) || 0;
+    obj._watts = parseFloat(obj['Avg. Watts']) || 0;
+    obj._calories = parseFloat(obj['Calories Burned']) || 0;
+    obj._hr = parseFloat(obj['Avg. Heartrate']) || 0;
+    obj._cadence = parseFloat(obj['Avg. Cadence (RPM)']) || 0;
+    obj._distance = parseFloat(obj['Distance (mi)']) || 0;
+    obj._resistance = obj['Avg. Resistance'] || '';
+    obj._title = obj['Title'] || '';
+    return obj;
+  }).filter(r => !isNaN(r._date.getTime()) && r._year > 2000);
+}
+
+function splitCSVLine(line) {
+  const cols = []; let cur = ''; let inQ = false;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (c === '"') { inQ = !inQ; } else if (c === ',' && !inQ) { cols.push(cur); cur = ''; } else { cur += c; }
+  }
+  cols.push(cur);
+  return cols;
+}
+
+// ── LAUNCH ─────────────────────────────────────────────────────
+function launchApp() {
+  document.getElementById('import-screen').classList.add('hidden');
+  document.getElementById('app').classList.add('visible');
+  // Sort chronologically
+  allData.sort((a, b) => a._date - b._date);
+  const first = allData[0]._date.getFullYear();
+  const last = allData[allData.length - 1]._date.getFullYear();
+  document.getElementById('header-meta').textContent =
+    `${allData.length.toLocaleString()} workouts · ${first}–${last}`;
+  buildOverview();
+  buildCyclingFilters();
+  buildLog();
+  // Charts in hidden tabs read clientWidth=0 if drawn immediately.
+  // Double-rAF ensures the browser has completed layout before we measure.
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    buildCycling();
+    buildActivity();
+    // Redraw whichever tab is active so its charts are sized correctly
+    redrawActiveTab();
+  }));
+}
+
+function redrawActiveTab() {
+  const active = document.querySelector('.tab.active');
+  if (!active) return;
+  const tab = active.dataset.tab;
+  if (tab === 'cycling') buildCycling();
+  else if (tab === 'activity') { buildCalBar(); buildDurBar(); buildStreakVis(); }
+  else if (tab === 'overview') { buildMonthlyBar(); }
+}
+
+// ── TABS ───────────────────────────────────────────────────────
+document.querySelectorAll('.tab').forEach(t => {
+  t.addEventListener('click', () => {
+    document.querySelectorAll('.tab').forEach(x => x.classList.remove('active'));
+    document.querySelectorAll('.tab-content').forEach(x => x.style.display = 'none');
+    t.classList.add('active');
+    document.getElementById('tab-' + t.dataset.tab).style.display = '';
+    // Redraw charts now that the tab is visible and has real dimensions
+    if (!allData.length) return;
+    requestAnimationFrame(() => {
+      const tab = t.dataset.tab;
+      if (tab === 'overview') buildMonthlyBar();
+      else if (tab === 'cycling') buildCycling();
+      else if (tab === 'activity') { buildCalBar(); buildDurBar(); }
+      else if (tab === 'compare') buildCompare();
+    });
+  });
+});
+
+// ── OVERVIEW ──────────────────────────────────────────────────
+function buildOverview() {
+  const total = allData.length;
+  const cyclingData = allData.filter(d => d._discipline === 'Cycling' && d._output > 0);
+  const totalCal = allData.reduce((s, d) => s + d._calories, 0);
+  const totalMin = allData.reduce((s, d) => s + d._length, 0);
+  const totalDist = allData.filter(d => d._discipline === 'Cycling').reduce((s, d) => s + d._distance, 0);
+
+  // Streak
+  const days = new Set(allData.map(d => d._date.toDateString()));
+  let maxStreak = 0, cur = 0;
+  const sorted = [...days].map(d => new Date(d)).sort((a, b) => a - b);
+  for (let i = 0; i < sorted.length; i++) {
+    if (i === 0) { cur = 1; }
+    else {
+      const diff = (sorted[i] - sorted[i-1]) / 86400000;
+      cur = diff === 1 ? cur + 1 : 1;
+    }
+    maxStreak = Math.max(maxStreak, cur);
+  }
+
+  const grid = document.getElementById('kpi-grid');
+  grid.innerHTML = '';
+  const kpis = [
+    { val: total.toLocaleString(), label: 'Total Workouts', sub: `${allData[0]._year}–${allData[allData.length-1]._year}`, color: 'red' },
+    { val: Math.round(totalMin / 60).toLocaleString() + 'h', label: 'Total Active Time', sub: `${totalMin.toLocaleString()} minutes`, color: 'orange' },
+    { val: Math.round(totalCal).toLocaleString(), label: 'Calories Burned', sub: `~${Math.round(totalCal / total)} avg/session`, color: 'blue' },
+    { val: Math.round(totalDist).toLocaleString(), label: 'Cycling Miles', sub: `Peloton only`, color: 'green' },
+    { val: maxStreak, label: 'Best Streak', sub: 'Consecutive days', color: 'orange' },
+    { val: cyclingData.length > 0 ? Math.round(cyclingData.reduce((s,d)=>s+d._watts,0)/cyclingData.length) : '—', label: 'Avg Watts (Cycling)', sub: 'Effort rides only', color: 'red' },
+  ];
+  kpis.forEach(k => {
+    grid.innerHTML += `<div class="kpi ${k.color}">
+      <div class="kpi-value">${k.val}</div>
+      <div class="kpi-label">${k.label}</div>
+      <div class="kpi-sub">${k.sub}</div>
+    </div>`;
+  });
+
+  buildDonut();
+  buildMonthlyBar();
+  buildHeatmap();
+}
+
+function buildDonut() {
+  const discMap = {};
+  allData.forEach(d => { discMap[d._discipline] = (discMap[d._discipline] || 0) + 1; });
+  const colors = { Cycling: '#e8413e', Walking: '#22c55e', Strength: '#f97316', Stretching: '#3b82f6', Meditation: '#a855f7' };
+  const entries = Object.entries(discMap).sort((a,b) => b[1]-a[1]);
+  const total = entries.reduce((s,e) => s+e[1], 0);
+
+  const size = 140, cx = size/2, cy = size/2, r = 52, ri = 32;
+  let angle = -Math.PI/2;
+  let paths = '';
+  entries.forEach(([name, count]) => {
+    const sweep = (count / total) * Math.PI * 2;
+    const x1 = cx + r * Math.cos(angle), y1 = cy + r * Math.sin(angle);
+    const x2 = cx + r * Math.cos(angle + sweep), y2 = cy + r * Math.sin(angle + sweep);
+    const xi1 = cx + ri * Math.cos(angle), yi1 = cy + ri * Math.sin(angle);
+    const xi2 = cx + ri * Math.cos(angle + sweep), yi2 = cy + ri * Math.sin(angle + sweep);
+    const large = sweep > Math.PI ? 1 : 0;
+    const col = colors[name] || '#6b7280';
+    paths += `<path d="M${xi1},${yi1} L${x1},${y1} A${r},${r} 0 ${large} 1 ${x2},${y2} L${xi2},${yi2} A${ri},${ri} 0 ${large} 0 ${xi1},${yi1}" fill="${col}" opacity=".9"/>`;
+    angle += sweep;
+  });
+
+  const svg = `<svg viewBox="0 0 ${size} ${size}" width="${size}" height="${size}">
+    ${paths}
+    <text x="${cx}" y="${cy-4}" text-anchor="middle" font-family="Bebas Neue" font-size="22" fill="#f0f0f8">${total}</text>
+    <text x="${cx}" y="${cy+14}" text-anchor="middle" font-family="DM Sans" font-size="9" fill="#6b7280">TOTAL</text>
+  </svg>`;
+
+  const legend = entries.map(([name, count]) =>
+    `<div class="legend-row">
+      <div class="legend-dot" style="background:${colors[name]||'#6b7280'}"></div>
+      <div class="legend-name">${name}</div>
+      <div class="legend-val">${count}</div>
+     </div>`
+  ).join('');
+
+  document.getElementById('donut-wrap').innerHTML = svg + `<div class="donut-legend">${legend}</div>`;
+}
+
+function buildMonthlyBar() {
+  const map = {};
+  allData.forEach(d => {
+    const key = `${d._year}-${String(d._month+1).padStart(2,'0')}`;
+    map[key] = (map[key] || 0) + 1;
+  });
+  const keys = Object.keys(map).sort();
+  // Show last 24 months
+  const recent = keys.slice(-24);
+  drawBarChart('monthly-bar', recent, recent.map(k => map[k]), '#3b82f6', k => k, v => v);
+}
+
+function buildHeatmap() {
+  const today = new Date();
+  const start = new Date(today); start.setDate(start.getDate() - 364);
+  const dayMap = {};
+  allData.forEach(d => { const k = d._date.toDateString(); dayMap[k] = (dayMap[k] || 0) + 1; });
+
+  const cells = [];
+  const d = new Date(start);
+  const months = [];
+  let lastMonth = -1;
+  for (let i = 0; i < 365; i++) {
+    const k = d.toDateString();
+    const cnt = dayMap[k] || 0;
+    cells.push({ date: new Date(d), cnt });
+    if (d.getMonth() !== lastMonth) {
+      months.push({ idx: Math.floor(i / 7), label: d.toLocaleString('default', { month: 'short' }) });
+      lastMonth = d.getMonth();
+    }
+    d.setDate(d.getDate() + 1);
+  }
+
+  const maxCnt = Math.max(...cells.map(c => c.cnt), 1);
+  const colors = ['#1a1a26', '#1e3a5f', '#2563eb', '#3b82f6', '#60a5fa'];
+
+  const hm = document.getElementById('heatmap');
+  hm.innerHTML = '';
+  cells.forEach(c => {
+    const div = document.createElement('div');
+    div.className = 'hm-cell';
+    const level = c.cnt === 0 ? 0 : Math.ceil((c.cnt / maxCnt) * 4);
+    div.style.background = colors[level];
+    div.title = `${c.date.toLocaleDateString()}: ${c.cnt} workout${c.cnt !== 1 ? 's' : ''}`;
+    hm.appendChild(div);
+  });
+
+  // Month labels
+  const hmMonths = document.getElementById('hm-months');
+  hmMonths.innerHTML = '';
+  months.forEach(m => {
+    const span = document.createElement('span');
+    span.style.cssText = `width:${(1/53)*100}%; min-width:0; display:block; padding-left:2px; grid-column:${m.idx+1}`;
+    span.textContent = m.label;
+    hmMonths.appendChild(span);
+  });
+}
+
+// ── CYCLING ───────────────────────────────────────────────────
+function buildCyclingFilters() {
+  const cyData = allData.filter(d => d._discipline === 'Cycling' && d._output > 0);
+  const instructors = [...new Set(cyData.map(d => d._instructor).filter(Boolean))].sort();
+  const types = [...new Set(cyData.map(d => d._type).filter(Boolean))].sort();
+  const years = [...new Set(cyData.map(d => d._year))].sort();
+
+  const inSel = document.getElementById('cy-instructor');
+  instructors.forEach(i => inSel.innerHTML += `<option value="${i}">${i}</option>`);
+  const typSel = document.getElementById('cy-type');
+  types.forEach(t => typSel.innerHTML += `<option value="${t}">${t}</option>`);
+  const yrSel = document.getElementById('cy-year');
+  years.forEach(y => yrSel.innerHTML += `<option value="${y}">${y}</option>`);
+
+  ['cy-instructor','cy-type','cy-length','cy-year'].forEach(id => {
+    document.getElementById(id).addEventListener('change', buildCycling);
+  });
+}
+
+function getCyFiltered() {
+  const inst = document.getElementById('cy-instructor').value;
+  const type = document.getElementById('cy-type').value;
+  const len = document.getElementById('cy-length').value;
+  const yr = document.getElementById('cy-year').value;
+  return allData.filter(d => {
+    if (d._discipline !== 'Cycling' || d._output <= 0) return false;
+    if (inst && d._instructor !== inst) return false;
+    if (type && d._type !== type) return false;
+    if (len && d._length !== parseInt(len)) return false;
+    if (yr && d._year !== parseInt(yr)) return false;
+    return true;
+  });
+}
+
+function buildCycling() {
+  filteredCy = getCyFiltered();
+  const n = filteredCy.length;
+  if (!n) { document.getElementById('cy-kpis').innerHTML = '<div class="empty"><div class="empty-icon">🚴</div><div>No rides match these filters</div></div>'; return; }
+
+  const avgW = filteredCy.reduce((s,d)=>s+d._watts,0)/n;
+  const maxW = Math.max(...filteredCy.map(d=>d._watts));
+  const avgO = filteredCy.reduce((s,d)=>s+d._output,0)/n;
+  const maxO = Math.max(...filteredCy.map(d=>d._output));
+  const totalDist = filteredCy.reduce((s,d)=>s+d._distance,0);
+  const hrRides = filteredCy.filter(d=>d._hr>0);
+  const avgHR = hrRides.length ? Math.round(hrRides.reduce((s,d)=>s+d._hr,0)/hrRides.length) : '—';
+
+  // Per-minute metrics: for each ride compute (output / minutes) and (watts / minutes),
+  // then average those ratios across rides with valid length > 0
+  const perMinRides = filteredCy.filter(d => d._length > 0);
+  const avgWattsPerMin = perMinRides.length
+    ? perMinRides.reduce((s,d) => s + d._watts / d._length, 0) / perMinRides.length
+    : 0;
+  const avgOutputPerMin = perMinRides.length
+    ? perMinRides.reduce((s,d) => s + d._output / d._length, 0) / perMinRides.length
+    : 0;
+  const maxWattsPerMin = perMinRides.length
+    ? Math.max(...perMinRides.map(d => d._watts / d._length)) : 0;
+  const maxOutputPerMin = perMinRides.length
+    ? Math.max(...perMinRides.map(d => d._output / d._length)) : 0;
+
+  document.getElementById('cy-kpis').innerHTML = [
+    { val: n.toLocaleString(), label: 'Rides', sub: '', color: 'red' },
+    { val: Math.round(avgW), label: 'Avg Watts', sub: `Max ${Math.round(maxW)}W`, color: 'orange' },
+    { val: avgWattsPerMin > 0 ? avgWattsPerMin.toFixed(2) : '—', label: 'Avg Watts / Min', sub: avgWattsPerMin > 0 ? `W per minute · max ${maxWattsPerMin.toFixed(2)}` : '', color: 'orange' },
+    { val: Math.round(avgO), label: 'Avg Output (kJ)', sub: `Max ${Math.round(maxO)} kJ`, color: 'blue' },
+    { val: avgOutputPerMin > 0 ? avgOutputPerMin.toFixed(2) : '—', label: 'Avg Output / Min', sub: avgOutputPerMin > 0 ? `kJ per minute · max ${maxOutputPerMin.toFixed(2)}` : '', color: 'blue' },
+    { val: Math.round(totalDist).toLocaleString(), label: 'Total Miles', sub: '', color: 'green' },
+    { val: avgHR, label: 'Avg Heart Rate', sub: hrRides.length ? `${hrRides.length} HR rides` : 'No HR data', color: 'red' },
+  ].map(k => `<div class="kpi ${k.color}"><div class="kpi-value">${k.val}</div><div class="kpi-label">${k.label}</div><div class="kpi-sub">${k.sub}</div></div>`).join('');
+
+  buildWattsLine();
+  buildOutputHist();
+  buildInstructorBar();
+  buildBestRides();
+  buildCadenceBar();
+}
+
+function buildWattsLine() {
+  // 4-week rolling avg of avg watts
+  const sorted = [...filteredCy].sort((a,b)=>a._date-b._date);
+  const weekly = {};
+  sorted.forEach(d => {
+    const wk = getWeekKey(d._date);
+    if (!weekly[wk]) weekly[wk] = [];
+    weekly[wk].push(d._watts);
+  });
+  const wks = Object.keys(weekly).sort();
+  const avgPerWk = wks.map(w => avg(weekly[w]));
+  // 4-week rolling
+  const rolling = avgPerWk.map((_, i) => {
+    const slice = avgPerWk.slice(Math.max(0, i-3), i+1);
+    return avg(slice);
+  });
+  const recent = wks.slice(-52);
+  const vals = rolling.slice(-52);
+  drawLineChart('watts-line', recent, vals, '#f97316');
+}
+
+function buildOutputHist() {
+  const vals = filteredCy.map(d => d._output).filter(v => v > 0);
+  const min = Math.min(...vals), max = Math.max(...vals);
+  const bins = 10;
+  const step = (max - min) / bins;
+  const counts = Array(bins).fill(0);
+  vals.forEach(v => { const b = Math.min(Math.floor((v-min)/step), bins-1); counts[b]++; });
+  const labels = counts.map((_, i) => `${Math.round(min+i*step)}`);
+  drawBarChart('output-hist', labels, counts, '#e8413e');
+}
+
+function buildInstructorBar() {
+  const map = {};
+  filteredCy.forEach(d => {
+    if (!d._instructor) return;
+    if (!map[d._instructor]) map[d._instructor] = [];
+    map[d._instructor].push(d._watts);
+  });
+  const entries = Object.entries(map)
+    .map(([k,v]) => [k, avg(v)])
+    .sort((a,b) => b[1]-a[1])
+    .slice(0, 8);
+  drawBarChart('instructor-bar', entries.map(e=>e[0].split(' ')[0]), entries.map(e=>Math.round(e[1])), '#3b82f6');
+}
+
+function buildBestRides() {
+  const top = [...filteredCy].sort((a,b)=>b._output-a._output).slice(0,8);
+  document.getElementById('best-rides').innerHTML = top.map(d =>
+    `<div style="padding:7px 0;border-bottom:1px solid var(--border);font-size:11px">
+      <div style="color:var(--text);font-weight:600">${d._title.replace(/\d+ min /, '')}</div>
+      <div style="color:var(--muted);margin-top:2px;display:flex;gap:12px">
+        <span style="color:var(--accent2);font-family:'DM Mono',monospace">${d._output} kJ</span>
+        <span>${d._watts}W</span>
+        <span>${d._date.toLocaleDateString()}</span>
+      </div>
+    </div>`
+  ).join('');
+}
+
+function buildCadenceBar() {
+  const lenGroups = {};
+  filteredCy.forEach(d => {
+    if (d._cadence > 0) {
+      const k = d._length + ' min';
+      if (!lenGroups[k]) lenGroups[k] = [];
+      lenGroups[k].push(d._cadence);
+    }
+  });
+  const entries = Object.entries(lenGroups).sort((a,b)=>parseInt(a[0])-parseInt(b[0]));
+  drawBarChart('cadence-bar', entries.map(e=>e[0]), entries.map(e=>Math.round(avg(e[1]))), '#22c55e');
+}
+
+// ── ACTIVITY ──────────────────────────────────────────────────
+function buildActivity() {
+  const totalCal = allData.reduce((s,d)=>s+d._calories,0);
+  const totalMin = allData.reduce((s,d)=>s+d._length,0);
+  const walks = allData.filter(d=>d._discipline==='Walking');
+  const walkDist = walks.reduce((s,d)=>s+d._distance,0);
+  const strength = allData.filter(d=>d._discipline==='Strength').length;
+
+  document.getElementById('act-kpis').innerHTML = [
+    { val: Math.round(totalCal).toLocaleString(), label: 'Total Calories', sub: `~${Math.round(totalCal/allData.length)} per session`, color: 'red' },
+    { val: walks.length.toLocaleString(), label: 'Walks', sub: `${Math.round(walkDist)} miles`, color: 'green' },
+    { val: strength.toLocaleString(), label: 'Strength Sessions', sub: '', color: 'orange' },
+    { val: Math.round(totalMin / allData.length), label: 'Avg Session (min)', sub: '', color: 'blue' },
+  ].map(k => `<div class="kpi ${k.color}"><div class="kpi-value">${k.val}</div><div class="kpi-label">${k.label}</div><div class="kpi-sub">${k.sub}</div></div>`).join('');
+
+  buildCalBar();
+  buildDurBar();
+  buildStreakVis();
+}
+
+function buildCalBar() {
+  const map = {};
+  allData.filter(d=>d._calories>0).forEach(d => {
+    const key = `${d._year}-${String(d._month+1).padStart(2,'0')}`;
+    map[key] = (map[key]||0) + d._calories;
+  });
+  const keys = Object.keys(map).sort().slice(-24);
+  drawBarChart('cal-bar', keys, keys.map(k=>Math.round(map[k])), '#a855f7');
+}
+
+function buildDurBar() {
+  const buckets = {'<15':0,'15-20':0,'30':0,'45':0,'60':0,'>60':0};
+  allData.forEach(d => {
+    if (d._length < 15) buckets['<15']++;
+    else if (d._length <= 20) buckets['15-20']++;
+    else if (d._length <= 30) buckets['30']++;
+    else if (d._length <= 45) buckets['45']++;
+    else if (d._length <= 60) buckets['60']++;
+    else buckets['>60']++;
+  });
+  drawBarChart('dur-bar', Object.keys(buckets), Object.values(buckets), '#f97316');
+}
+
+function buildStreakVis() {
+  const days = [...new Set(allData.map(d => d._date.toDateString()))].map(d => new Date(d)).sort((a,b)=>a-b);
+  let streaks = [], cur = 1;
+  for (let i = 1; i < days.length; i++) {
+    const diff = (days[i]-days[i-1])/86400000;
+    if (diff === 1) cur++;
+    else { if (cur > 1) streaks.push(cur); cur = 1; }
+  }
+  if (cur > 1) streaks.push(cur);
+  const top = [...streaks].sort((a,b)=>b-a).slice(0,10);
+  const maxS = top[0] || 1;
+  document.getElementById('streak-vis').innerHTML = `
+    <div style="display:flex;flex-direction:column;gap:8px;padding-top:8px">
+      ${top.map((s,i)=>`<div style="display:flex;align-items:center;gap:10px;font-size:12px">
+        <div style="color:var(--muted);width:16px;font-family:'DM Mono',monospace">${i+1}</div>
+        <div class="prog-track" style="flex:1"><div class="prog-fill" style="width:${(s/maxS)*100}%;background:${i===0?'var(--accent)':'var(--accent3)'}"></div></div>
+        <div style="color:var(--text);font-family:'DM Mono',monospace;width:48px">${s} days</div>
+      </div>`).join('')}
+    </div>`;
+}
+
+// ── LOG ────────────────────────────────────────────────────────
+function buildLog() {
+  const discs = [...new Set(allData.map(d=>d._discipline))].sort();
+  const years = [...new Set(allData.map(d=>d._year))].sort();
+  const dSel = document.getElementById('log-disc');
+  discs.forEach(d => dSel.innerHTML += `<option value="${d}">${d}</option>`);
+  const ySel = document.getElementById('log-year-f');
+  years.forEach(y => ySel.innerHTML += `<option value="${y}">${y}</option>`);
+
+  document.getElementById('log-search').addEventListener('input', e => { logSearch = e.target.value.toLowerCase(); logPage = 0; renderLog(); });
+  document.getElementById('log-disc').addEventListener('change', e => { logDisc = e.target.value; logPage = 0; renderLog(); });
+  document.getElementById('log-year-f').addEventListener('change', e => { logYearF = e.target.value; logPage = 0; renderLog(); });
+  document.querySelectorAll('#log-table thead th[data-col]').forEach(th => {
+    th.addEventListener('click', () => {
+      const col = th.dataset.col;
+      if (logSort.col === col) logSort.dir *= -1;
+      else { logSort.col = col; logSort.dir = -1; }
+      logPage = 0; renderLog();
+    });
+  });
+  document.getElementById('pg-prev').addEventListener('click', () => { if (logPage > 0) { logPage--; renderLog(); } });
+  document.getElementById('pg-next').addEventListener('click', () => { logPage++; renderLog(); });
+  renderLog();
+}
+
+function renderLog() {
+  let data = allData.filter(d => {
+    if (logSearch && !`${d._title} ${d._instructor} ${d._type} ${d._discipline}`.toLowerCase().includes(logSearch)) return false;
+    if (logDisc && d._discipline !== logDisc) return false;
+    if (logYearF && d._year !== parseInt(logYearF)) return false;
+    return true;
+  });
+  data = data.sort((a,b) => {
+    const col = logSort.col;
+    let av, bv;
+    if (col==='date') { av=a._date; bv=b._date; }
+    else if (col==='length') { av=a._length; bv=b._length; }
+    else if (col==='output') { av=a._output; bv=b._output; }
+    else if (col==='watts') { av=a._watts; bv=b._watts; }
+    else if (col==='calories') { av=a._calories; bv=b._calories; }
+    else if (col==='hr') { av=a._hr; bv=b._hr; }
+    else if (col==='discipline') { av=a._discipline; bv=b._discipline; }
+    else { av=a._date; bv=b._date; }
+    if (av < bv) return -logSort.dir; if (av > bv) return logSort.dir; return 0;
+  });
+  const total = data.length;
+  const maxPage = Math.ceil(total / PAGE_SIZE) - 1;
+  logPage = Math.min(logPage, Math.max(0, maxPage));
+  const page = data.slice(logPage * PAGE_SIZE, (logPage+1) * PAGE_SIZE);
+
+  document.getElementById('pager-info').textContent = `${(logPage*PAGE_SIZE+1).toLocaleString()}–${Math.min((logPage+1)*PAGE_SIZE, total).toLocaleString()} of ${total.toLocaleString()}`;
+  document.getElementById('pg-prev').disabled = logPage === 0;
+  document.getElementById('pg-next').disabled = logPage >= maxPage;
+
+  const badgeClass = disc => {
+    const m = { Cycling:'cycling', Walking:'walking', Strength:'strength', Stretching:'stretching', Meditation:'meditation' };
+    return m[disc] || 'other';
+  };
+
+  const tbody = document.getElementById('log-body');
+  tbody.innerHTML = page.map((d, i) => {
+    const idx = allData.indexOf(d);
+    const checked = compareSelected.has(idx);
+    const disabled = !checked && compareSelected.size >= 3;
+    return `<tr class="${checked ? 'cmp-selected' : ''}" data-idx="${idx}">
+      <td style="text-align:center"><input type="checkbox" class="cmp-check" data-idx="${idx}" ${checked ? 'checked' : ''} ${disabled ? 'disabled' : ''}></td>
+      <td>${d._date.toLocaleDateString()}</td>
+      <td><span class="badge badge-${badgeClass(d._discipline)}">${d._discipline}</span></td>
+      <td>${d._length}</td>
+      <td>${d._title}</td>
+      <td>${d._instructor || '—'}</td>
+      <td>${d._output > 0 ? d._output : '—'}</td>
+      <td>${d._watts > 0 ? d._watts : '—'}</td>
+      <td>${d._calories > 0 ? Math.round(d._calories) : '—'}</td>
+      <td>${d._hr > 0 ? Math.round(d._hr) : '—'}</td>
+    </tr>`;
+  }).join('');
+
+  // Wire checkboxes
+  tbody.querySelectorAll('.cmp-check').forEach(cb => {
+    cb.addEventListener('change', () => {
+      const idx = parseInt(cb.dataset.idx);
+      if (cb.checked) compareSelected.add(idx);
+      else compareSelected.delete(idx);
+      updateCompareBar();
+      renderLog();
+    });
+  });
+}
+
+// ── CHART HELPERS ─────────────────────────────────────────────
+const tt = document.getElementById('tooltip');
+
+function drawBarChart(svgId, labels, values, color, fmtLabel, fmtVal) {
+  const el = document.getElementById(svgId);
+  const parentW = el.parentElement.clientWidth || el.parentElement.getBoundingClientRect().width;
+  const W = (parentW > 60 ? parentW : 560) - 40;
+  const H = 200;
+  const pad = { t:12, r:10, b:36, l:44 };
+  const cW = W - pad.l - pad.r;
+  const cH = H - pad.t - pad.b;
+  const maxV = Math.max(...values, 1);
+  const barW = Math.max(2, cW / labels.length - 2);
+
+  let gridLines = '';
+  for (let i = 0; i <= 4; i++) {
+    const y = pad.t + cH - (i/4)*cH;
+    const v = Math.round((i/4)*maxV);
+    gridLines += `<line class="grid-line" x1="${pad.l}" y1="${y}" x2="${pad.l+cW}" y2="${y}"/>`;
+    gridLines += `<text class="axis-label" x="${pad.l-6}" y="${y+4}" text-anchor="end">${v}</text>`;
+  }
+
+  let bars = '';
+  const skip = Math.ceil(labels.length / 20);
+  labels.forEach((lbl, i) => {
+    const x = pad.l + i * (cW / labels.length) + (cW/labels.length - barW)/2;
+    const h = Math.max(1, (values[i]/maxV)*cH);
+    const y = pad.t + cH - h;
+    bars += `<rect class="bar-fill" x="${x}" y="${y}" width="${barW}" height="${h}" fill="${color}" rx="2"
+      data-lbl="${lbl}" data-val="${values[i]}"/>`;
+    if (i % skip === 0) {
+      bars += `<text class="axis-label" x="${x+barW/2}" y="${H-8}" text-anchor="middle">${lbl.length>6?lbl.slice(0,6):lbl}</text>`;
+    }
+  });
+
+  el.setAttribute('viewBox', `0 0 ${W} ${H}`);
+  el.innerHTML = gridLines + bars;
+  el.querySelectorAll('.bar-fill').forEach(bar => {
+    bar.addEventListener('mouseenter', e => {
+      tt.innerHTML = `<div class="tt-title">${bar.dataset.lbl}</div><div class="tt-row"><span>Value</span><span class="tt-val">${Number(bar.dataset.val).toLocaleString()}</span></div>`;
+      tt.classList.add('visible');
+    });
+    bar.addEventListener('mousemove', e => {
+      tt.style.left = (e.clientX + 12) + 'px';
+      tt.style.top = (e.clientY - 28) + 'px';
+    });
+    bar.addEventListener('mouseleave', () => tt.classList.remove('visible'));
+  });
+}
+
+function drawLineChart(svgId, labels, values, color) {
+  const el = document.getElementById(svgId);
+  const parentW = el.parentElement.clientWidth || el.parentElement.getBoundingClientRect().width;
+  const W = (parentW > 60 ? parentW : 560) - 40;
+  const H = 200;
+  const pad = { t:12, r:10, b:36, l:44 };
+  const cW = W - pad.l - pad.r;
+  const cH = H - pad.t - pad.b;
+  const minV = Math.min(...values);
+  const maxV = Math.max(...values, minV+1);
+  const range = maxV - minV;
+
+  const xScale = i => pad.l + (i/(labels.length-1||1))*cW;
+  const yScale = v => pad.t + cH - ((v-minV)/range)*cH;
+
+  let gridLines = '';
+  for (let i = 0; i <= 4; i++) {
+    const y = pad.t + (i/4)*cH;
+    const v = Math.round(maxV - (i/4)*range);
+    gridLines += `<line class="grid-line" x1="${pad.l}" y1="${y}" x2="${pad.l+cW}" y2="${y}"/>`;
+    gridLines += `<text class="axis-label" x="${pad.l-6}" y="${y+4}" text-anchor="end">${v}</text>`;
+  }
+
+  const pts = values.map((v,i) => `${xScale(i)},${yScale(v)}`).join(' ');
+  const firstX = xScale(0), lastX = xScale(values.length-1);
+  const areaPoints = `${firstX},${pad.t+cH} ${pts} ${lastX},${pad.t+cH}`;
+
+  const skip = Math.ceil(labels.length / 10);
+  let xLabels = '';
+  labels.forEach((l,i) => {
+    if (i % skip === 0) xLabels += `<text class="axis-label" x="${xScale(i)}" y="${H-8}" text-anchor="middle">${l.slice(0,7)}</text>`;
+  });
+
+  let dots = '';
+  values.forEach((v,i) => {
+    dots += `<circle class="line-dot" cx="${xScale(i)}" cy="${yScale(v)}" r="3" fill="${color}" opacity=".8" data-lbl="${labels[i]}" data-val="${Math.round(v)}"/>`;
+  });
+
+  el.setAttribute('viewBox', `0 0 ${W} ${H}`);
+  el.innerHTML = gridLines +
+    `<defs><linearGradient id="lg${svgId}" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="${color}" stop-opacity=".3"/><stop offset="100%" stop-color="${color}" stop-opacity="0"/></linearGradient></defs>` +
+    `<polygon points="${areaPoints}" fill="url(#lg${svgId})"/>` +
+    `<polyline class="line-path" points="${pts}" stroke="${color}"/>` +
+    xLabels + dots;
+
+  el.querySelectorAll('.line-dot').forEach(dot => {
+    dot.addEventListener('mouseenter', e => {
+      tt.innerHTML = `<div class="tt-title">${dot.dataset.lbl}</div><div class="tt-row"><span>Avg Watts</span><span class="tt-val">${dot.dataset.val}W</span></div>`;
+      tt.classList.add('visible');
+    });
+    dot.addEventListener('mousemove', e => { tt.style.left=(e.clientX+12)+'px'; tt.style.top=(e.clientY-28)+'px'; });
+    dot.addEventListener('mouseleave', () => tt.classList.remove('visible'));
+  });
+}
+
+// ── COMPARE ────────────────────────────────────────────────────
+const CMP_COLORS = ['#e8413e', '#3b82f6', '#f97316'];
+const CMP_LABELS = ['Ride A', 'Ride B', 'Ride C'];
+
+function updateCompareBar() {
+  const n = compareSelected.size;
+  // Update or inject a sticky selection bar in the log tab
+  let bar = document.getElementById('cmp-select-bar');
+  if (!bar) {
+    bar = document.createElement('div');
+    bar.id = 'cmp-select-bar';
+    bar.className = 'compare-select-bar';
+    const logTab = document.getElementById('tab-log');
+    logTab.insertBefore(bar, logTab.firstChild);
+  }
+  if (n === 0) { bar.style.display = 'none'; return; }
+  bar.style.display = 'flex';
+  bar.innerHTML = `
+    <span style="font-size:13px;color:var(--text)">
+      <span style="color:var(--accent);font-weight:700">${n}</span> workout${n>1?'s':''} selected
+      <span style="color:var(--muted);font-size:11px;margin-left:8px">(max 3)</span>
+    </span>
+    <div style="display:flex;gap:8px">
+      <button class="btn-sm" id="cmp-go-btn" style="border-color:var(--accent);color:var(--accent)" ${n<2?'disabled':''}>
+        Compare →
+      </button>
+      <button class="btn-sm" id="cmp-desel-btn">Clear</button>
+    </div>`;
+  document.getElementById('cmp-desel-btn').addEventListener('click', () => {
+    compareSelected.clear(); updateCompareBar(); renderLog();
+  });
+  if (n >= 2) {
+    document.getElementById('cmp-go-btn').addEventListener('click', () => {
+      // Switch to compare tab
+      document.querySelectorAll('.tab').forEach(x => x.classList.remove('active'));
+      document.querySelectorAll('.tab-content').forEach(x => x.style.display = 'none');
+      document.querySelector('[data-tab="compare"]').classList.add('active');
+      document.getElementById('tab-compare').style.display = '';
+      buildCompare();
+    });
+  }
+}
+
+function buildCompare() {
+  const rides = [...compareSelected].map(i => allData[i]);
+  if (rides.length < 2) {
+    document.getElementById('compare-empty').style.display = '';
+    document.getElementById('compare-content').style.display = 'none';
+    return;
+  }
+  document.getElementById('compare-empty').style.display = 'none';
+  document.getElementById('compare-content').style.display = '';
+  document.getElementById('cmp-count').textContent = rides.length;
+
+  document.getElementById('cmp-clear-btn').onclick = () => {
+    compareSelected.clear(); updateCompareBar(); renderLog();
+    document.getElementById('compare-empty').style.display = '';
+    document.getElementById('compare-content').style.display = 'none';
+  };
+
+  // ── Metrics definition ─────────────────────────────────────
+  const metrics = [
+    { key: 'watts',    label: 'Avg Watts',       fmt: v => v > 0 ? Math.round(v)+'W' : '—',    val: d => d._watts,    higherBetter: true },
+    { key: 'wpm',      label: 'Watts / Min',      fmt: v => v > 0 ? v.toFixed(2)+' W/m' : '—', val: d => d._length > 0 ? d._watts/d._length : 0, higherBetter: true },
+    { key: 'output',   label: 'Output (kJ)',       fmt: v => v > 0 ? Math.round(v)+' kJ' : '—', val: d => d._output,   higherBetter: true },
+    { key: 'opm',      label: 'Output / Min',      fmt: v => v > 0 ? v.toFixed(2)+' kJ/m' : '—',val: d => d._length > 0 ? d._output/d._length : 0, higherBetter: true },
+    { key: 'cadence',  label: 'Avg Cadence',       fmt: v => v > 0 ? Math.round(v)+' rpm' : '—',val: d => d._cadence,  higherBetter: true },
+    { key: 'hr',       label: 'Avg Heart Rate',    fmt: v => v > 0 ? Math.round(v)+' bpm' : '—',val: d => d._hr,       higherBetter: false },
+    { key: 'calories', label: 'Calories',          fmt: v => v > 0 ? Math.round(v) : '—',       val: d => d._calories, higherBetter: true },
+    { key: 'distance', label: 'Distance (mi)',     fmt: v => v > 0 ? v.toFixed(2)+' mi' : '—',  val: d => d._distance, higherBetter: true },
+  ];
+
+  const vals = metrics.map(m => rides.map(r => m.val(r)));
+
+  // ── Verdict ────────────────────────────────────────────────
+  const wins = rides.map(() => 0);
+  metrics.forEach((m, mi) => {
+    const rv = vals[mi];
+    const best = m.higherBetter ? Math.max(...rv) : Math.min(...rv.filter(v=>v>0));
+    rv.forEach((v, ri) => { if (v > 0 && v === best) wins[ri]++; });
+  });
+  const maxWins = Math.max(...wins);
+  const winnerIdx = wins.indexOf(maxWins);
+
+  document.getElementById('cmp-verdict').innerHTML = `
+    <div style="display:flex;gap:10px;flex-wrap:wrap">
+      ${rides.map((r, i) => `
+        <div class="verdict-card" style="flex:1;min-width:180px;border-color:${i===winnerIdx?CMP_COLORS[i]:'var(--border)'}">
+          <div style="width:12px;height:12px;border-radius:3px;background:${CMP_COLORS[i]};flex-shrink:0"></div>
+          <div>
+            <div class="verdict-name">${CMP_LABELS[i]} · ${r._date.toLocaleDateString()} · ${r._length} min</div>
+            <div class="verdict-score" style="color:${CMP_COLORS[i]}">${wins[i]} <span style="font-size:14px;color:var(--muted)">wins</span></div>
+            <div style="font-size:11px;color:var(--muted);margin-top:2px">${r._title || r._discipline}</div>
+          </div>
+          ${i===winnerIdx ? '<div style="margin-left:auto;font-size:18px">🏆</div>' : ''}
+        </div>`).join('')}
+    </div>`;
+
+  // ── Head-to-head table ────────────────────────────────────
+  const gridCols = `grid-template-columns: 140px ${rides.map(()=>'1fr').join(' ')}`;
+  let tableHTML = `<div style="display:grid;${gridCols};gap:0">`;
+  // Header row
+  tableHTML += `<div style="font-size:10px;color:var(--muted);padding:8px 0;border-bottom:2px solid var(--border)"></div>`;
+  rides.forEach((r, i) => {
+    tableHTML += `<div style="padding:8px 8px;border-bottom:2px solid var(--border)">
+      <div style="display:flex;align-items:center;gap:6px">
+        <div style="width:10px;height:10px;border-radius:2px;background:${CMP_COLORS[i]}"></div>
+        <div style="font-size:12px;font-weight:600;color:var(--text)">${CMP_LABELS[i]}</div>
+      </div>
+      <div style="font-size:10px;color:var(--muted);margin-top:2px">${r._date.toLocaleDateString()}</div>
+    </div>`;
+  });
+
+  metrics.forEach((m, mi) => {
+    const rv = vals[mi];
+    const allZero = rv.every(v => v === 0);
+    const validVals = rv.filter(v => v > 0);
+    const best = validVals.length ? (m.higherBetter ? Math.max(...validVals) : Math.min(...validVals)) : null;
+    const maxVal = validVals.length ? Math.max(...validVals) : 1;
+    const rowBg = mi % 2 === 0 ? 'transparent' : 'rgba(255,255,255,.02)';
+
+    tableHTML += `<div style="font-size:10px;text-transform:uppercase;letter-spacing:.8px;color:var(--muted);padding:10px 0 10px;background:${rowBg};display:flex;align-items:center">${m.label}</div>`;
+    rv.forEach((v, ri) => {
+      const isWin = !allZero && v > 0 && v === best;
+      const isLose = !allZero && v > 0 && v !== best && validVals.length > 1;
+      const color = isWin ? 'var(--green)' : isLose ? '#4b5563' : 'var(--label)';
+      const barPct = maxVal > 0 && v > 0 ? (v / maxVal) * 100 : 0;
+      tableHTML += `<div style="padding:8px 8px;background:${rowBg};display:flex;flex-direction:column;justify-content:center;gap:4px">
+        <div style="font-family:'DM Mono',monospace;font-size:13px;font-weight:500;color:${color}">${m.fmt(v)}${isWin ? ' ✓' : ''}</div>
+        ${barPct > 0 ? `<div class="cmp-bar-track"><div class="cmp-bar-fill" style="width:${barPct}%;background:${CMP_COLORS[ri]}"></div></div>` : ''}
+      </div>`;
+    });
+  });
+  tableHTML += '</div>';
+  document.getElementById('cmp-table').innerHTML = tableHTML;
+
+  // ── Radar chart ───────────────────────────────────────────
+  buildRadar(rides, metrics, vals);
+}
+
+function buildRadar(rides, metrics, vals) {
+  // Use 6 key metrics for radar (skip HR lower-is-better complexity in viz)
+  const radarMetrics = [
+    { label: 'Watts', idx: 0 },
+    { label: 'W/Min', idx: 1 },
+    { label: 'Output', idx: 2 },
+    { label: 'O/Min', idx: 3 },
+    { label: 'Cadence', idx: 4 },
+    { label: 'Calories', idx: 6 },
+  ];
+  const N = radarMetrics.length;
+  const cx = 170, cy = 150, R = 110, Ri = [0.2, 0.4, 0.6, 0.8, 1.0];
+  const angle = i => (i / N) * Math.PI * 2 - Math.PI / 2;
+  const pt = (i, r) => [cx + r * Math.cos(angle(i)), cy + r * Math.sin(angle(i))];
+
+  // Normalize each metric 0–1 across all rides
+  const normed = radarMetrics.map(rm => {
+    const rv = vals[rm.idx];
+    const max = Math.max(...rv, 0.001);
+    return rv.map(v => v / max);
+  });
+
+  let svg = '';
+
+  // Grid rings
+  Ri.forEach(r => {
+    const pts = radarMetrics.map((_, i) => pt(i, R * r).join(',')).join(' ');
+    svg += `<polygon points="${pts}" fill="none" stroke="var(--border)" stroke-width="1"/>`;
+  });
+  // Spokes
+  radarMetrics.forEach((_, i) => {
+    const [x, y] = pt(i, R);
+    svg += `<line x1="${cx}" y1="${cy}" x2="${x}" y2="${y}" stroke="var(--border)" stroke-width="1"/>`;
+  });
+  // Labels
+  radarMetrics.forEach((rm, i) => {
+    const [x, y] = pt(i, R + 18);
+    svg += `<text x="${x}" y="${y}" text-anchor="middle" dominant-baseline="middle" font-family="DM Mono,monospace" font-size="10" fill="#6b7280">${rm.label}</text>`;
+  });
+
+  // Ride polygons
+  rides.forEach((_, ri) => {
+    const pts = radarMetrics.map((rm, i) => {
+      const n = normed[i][ri];
+      return pt(i, R * Math.max(0.02, n)).join(',');
+    }).join(' ');
+    svg += `<polygon points="${pts}" fill="${CMP_COLORS[ri]}" fill-opacity="0.15" stroke="${CMP_COLORS[ri]}" stroke-width="2"/>`;
+    // Dots
+    radarMetrics.forEach((rm, i) => {
+      const n = normed[i][ri];
+      const [x, y] = pt(i, R * Math.max(0.02, n));
+      svg += `<circle cx="${x}" cy="${y}" r="4" fill="${CMP_COLORS[ri]}" opacity="0.9"/>`;
+    });
+  });
+
+  document.getElementById('cmp-radar').innerHTML = svg;
+
+  // Legend
+  document.getElementById('cmp-radar-legend').innerHTML = rides.map((r, i) =>
+    `<div style="display:flex;align-items:center;gap:6px">
+      <div style="width:12px;height:3px;background:${CMP_COLORS[i]};border-radius:2px"></div>
+      <span style="color:var(--label)">${CMP_LABELS[i]}</span>
+    </div>`
+  ).join('');
+}
+
+// ── UTILS ─────────────────────────────────────────────────────
+function avg(arr) { return arr.length ? arr.reduce((s,v)=>s+v,0)/arr.length : 0; }
+function getWeekKey(d) {
+  const dt = new Date(d); dt.setHours(0,0,0,0);
+  dt.setDate(dt.getDate() - dt.getDay());
+  return dt.toISOString().slice(0,10);
+}
+</script>
+</body>
+</html>
