@@ -356,6 +356,28 @@
   .line-dot:hover { r: 5; }
 
   /* ── RESPONSIVE ── */
+  /* ── TODAY ── */
+  .today-grid { display:grid; grid-template-columns:1fr 1fr 1fr; gap:16px; margin-bottom:24px; }
+  .today-hero { grid-column:1; }
+  .today-rec  { grid-column:2 / 4; }
+  .readiness-ring { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:6px; }
+  .readiness-score { font-family:'Bebas Neue',sans-serif; font-size:72px; line-height:1; }
+  .readiness-label { font-size:11px; text-transform:uppercase; letter-spacing:2px; color:var(--muted); }
+  .readiness-desc { font-size:12px; color:var(--label); text-align:center; margin-top:4px; max-width:180px; line-height:1.6; }
+  .today-metric-row { display:flex; align-items:center; justify-content:space-between; padding:10px 0; border-bottom:1px solid rgba(42,42,62,.5); }
+  .today-metric-row:last-child { border-bottom:none; }
+  .today-metric-label { font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.8px; }
+  .today-metric-val { font-family:'DM Mono',monospace; font-size:13px; color:var(--text); font-weight:500; }
+  .target-band { display:flex; align-items:center; gap:6px; font-family:'DM Mono',monospace; font-size:13px; }
+  .target-sep { color:var(--muted); }
+  .insight-card { background:var(--surface2); border-radius:8px; padding:12px 14px; margin-top:10px; font-size:12px; color:var(--label); line-height:1.7; border-left:3px solid var(--accent3); }
+  .pr-badge { display:inline-flex; align-items:center; gap:4px; background:rgba(34,197,94,.15); color:var(--green); border-radius:4px; padding:2px 7px; font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.5px; }
+  .streak-flame { font-size:28px; }
+  @media (max-width:600px) {
+    .today-grid { grid-template-columns:1fr; }
+    .today-hero, .today-rec { grid-column:1; }
+  }
+
   /* ── HELP ── */
   .help-section { margin-bottom:28px; }
   .help-section-title { font-size:11px;text-transform:uppercase;letter-spacing:2px;color:var(--muted);font-weight:600;margin-bottom:12px; }
@@ -450,6 +472,8 @@
 
     /* Charts: all single column */
     .chart-grid, .chart-grid.thirds { grid-template-columns: 1fr; }
+    .today-grid { grid-template-columns: 1fr; }
+    .today-hero, .today-rec { grid-column: 1; }
     .panel { padding: 12px 10px; border-radius: 10px; }
     .panel-title { font-size: 10px; margin-bottom: 10px; }
 
@@ -561,7 +585,8 @@
     </div>
     <div class="header-tabs-row">
       <div class="tabs">
-        <div class="tab active" data-tab="overview">Overview</div>
+        <div class="tab active" data-tab="today">Today</div>
+      <div class="tab" data-tab="overview">Overview</div>
         <div class="tab" data-tab="cycling">Cycling</div>
         <div class="tab" data-tab="activity">Activity</div>
         <div class="tab" data-tab="log">Log</div>
@@ -570,6 +595,11 @@
       </div>
     </div>
   </header>
+
+  <!-- TODAY TAB -->
+  <div class="content tab-content" id="tab-today">
+    <div id="today-content"></div>
+  </div>
 
   <!-- OVERVIEW TAB -->
   <div class="content tab-content" id="tab-overview">
@@ -1220,12 +1250,14 @@ function launchApp() {
   const last = allData[allData.length - 1]._date.getFullYear();
   document.getElementById('header-meta').textContent =
     `${allData.length.toLocaleString()} workouts · ${first}–${last}`;
+  buildToday();
   buildOverview();
   buildCyclingFilters();
   buildLog();
   // Charts in hidden tabs read clientWidth=0 if drawn immediately.
   // Double-rAF ensures the browser has completed layout before we measure.
   requestAnimationFrame(() => requestAnimationFrame(() => {
+    buildToday();
     buildCycling();
     buildActivity();
     // Redraw whichever tab is active so its charts are sized correctly
@@ -1237,7 +1269,8 @@ function redrawActiveTab() {
   const active = document.querySelector('.tab.active');
   if (!active) return;
   const tab = active.dataset.tab;
-  if (tab === 'cycling') buildCycling();
+  if (tab === 'today') buildToday();
+  else if (tab === 'cycling') buildCycling();
   else if (tab === 'activity') { buildCalBar(); buildDurBar(); buildStreakVis(); }
   else if (tab === 'overview') { buildMonthlyBar(); }
 }
@@ -1253,13 +1286,281 @@ document.querySelectorAll('.tab').forEach(t => {
     if (!allData.length) return;
     requestAnimationFrame(() => {
       const tab = t.dataset.tab;
-      if (tab === 'overview') buildMonthlyBar();
+      if (tab === 'today') buildToday();
+      else if (tab === 'overview') buildMonthlyBar();
       else if (tab === 'cycling') buildCycling();
       else if (tab === 'activity') { buildCalBar(); buildDurBar(); }
       else if (tab === 'compare') buildCompare();
+      else if (tab === 'today') buildToday();
     });
   });
 });
+
+// ── TODAY ─────────────────────────────────────────────────────
+function buildToday() {
+  const el = document.getElementById('today-content');
+  if (!el || !allData.length) return;
+
+  const today = new Date();
+  today.setHours(0,0,0,0);
+
+  // ── Core data sets ────────────────────────────────────────
+  const cyRides = allData.filter(d => d._discipline === 'Cycling' && d._watts > 0 && d._length > 0);
+  if (!cyRides.length) {
+    el.innerHTML = '<div class="empty"><div class="empty-icon">🚴</div><div>Not enough cycling data yet.</div></div>';
+    return;
+  }
+
+  // Sort rides chronologically (allData already sorted)
+  const lastRide    = allData[allData.length - 1];
+  const lastCyRide  = cyRides[cyRides.length - 1];
+  const daysSinceLast = Math.floor((today - lastRide._date) / 86400000);
+
+  // ── Rolling windows ───────────────────────────────────────
+  const days28ago = new Date(today); days28ago.setDate(today.getDate() - 28);
+  const days7ago  = new Date(today); days7ago.setDate(today.getDate() - 7);
+  const days84ago = new Date(today); days84ago.setDate(today.getDate() - 84); // 12 weeks
+
+  const rides28 = cyRides.filter(d => d._date >= days28ago);
+  const rides7  = cyRides.filter(d => d._date >= days7ago);
+  const rides84 = cyRides.filter(d => d._date >= days84ago);
+  const allRides = cyRides;
+
+  // ── Per-ride wpm ──────────────────────────────────────────
+  const wpm = d => d._length > 0 ? d._watts / d._length : 0;
+  const baselineWpm = avg(allRides.map(wpm));
+  const wpm28 = rides28.length ? avg(rides28.map(wpm)) : baselineWpm;
+  const wpm7  = rides7.length  ? avg(rides7.map(wpm))  : wpm28;
+
+  // ── Readiness score (0–10) ────────────────────────────────
+  // Factor 1: rest (optimal = 1-2 days since last ride)
+  let restScore;
+  if      (daysSinceLast === 0) restScore = 0.5; // rode today already
+  else if (daysSinceLast === 1) restScore = 1.0;
+  else if (daysSinceLast === 2) restScore = 0.95;
+  else if (daysSinceLast === 3) restScore = 0.85;
+  else if (daysSinceLast <= 5)  restScore = 0.7;
+  else if (daysSinceLast <= 7)  restScore = 0.55;
+  else                          restScore = 0.4;
+
+  // Factor 2: recent load vs chronic load (ATL vs CTL proxy)
+  const recentVsChron = wpm28 > 0 ? wpm7 / wpm28 : 1;
+  let loadScore;
+  if      (recentVsChron < 0.85) loadScore = 1.0;  // well rested vs recent baseline
+  else if (recentVsChron < 0.95) loadScore = 0.9;
+  else if (recentVsChron < 1.05) loadScore = 0.8;
+  else if (recentVsChron < 1.15) loadScore = 0.65; // slightly overloaded
+  else                            loadScore = 0.5;  // overloaded
+
+  // Factor 3: consistency (rides per week over last 4 weeks)
+  const ridesPerWeek4 = rides28.length / 4;
+  let consScore;
+  if      (ridesPerWeek4 >= 4) consScore = 1.0;
+  else if (ridesPerWeek4 >= 3) consScore = 0.9;
+  else if (ridesPerWeek4 >= 2) consScore = 0.75;
+  else if (ridesPerWeek4 >= 1) consScore = 0.6;
+  else                          consScore = 0.4;
+
+  const readiness = Math.round((restScore * 0.45 + loadScore * 0.35 + consScore * 0.2) * 10);
+  const readinessCap = Math.min(10, Math.max(1, readiness));
+
+  // Readiness color and label
+  const rColor = readinessCap >= 8 ? 'var(--green)' : readinessCap >= 5 ? 'var(--accent2)' : 'var(--accent)';
+  const rLabel = readinessCap >= 8 ? 'READY TO PUSH' : readinessCap >= 5 ? 'MODERATE DAY' : 'RECOVERY DAY';
+  const rDesc  = readinessCap >= 8
+    ? 'Your rest and recent load look ideal. This is a good day for a hard effort.'
+    : readinessCap >= 5
+    ? 'You\'re in reasonable shape but not fully fresh. Aim for a solid steady effort.'
+    : 'Your body could use more recovery. Consider an easy ride or rest today.';
+
+  // ── Target watts range ────────────────────────────────────
+  const avgWatts28 = rides28.length ? avg(rides28.map(d => d._watts)) : avg(allRides.map(d => d._watts));
+  const progressFactor = readinessCap >= 8 ? 1.04 : readinessCap >= 5 ? 1.00 : 0.88;
+  const targetWattsLow  = Math.round(avgWatts28 * progressFactor * 0.95);
+  const targetWattsHigh = Math.round(avgWatts28 * progressFactor * 1.05);
+
+  // ── Recommended ride length ───────────────────────────────
+  const minsThisWeek = allData.filter(d => d._date >= days7ago && d._discipline === 'Cycling')
+                              .reduce((s,d) => s+d._length, 0);
+  let recLength;
+  if      (readinessCap >= 8 && minsThisWeek < 90)  recLength = 45;
+  else if (readinessCap >= 8 && minsThisWeek < 150) recLength = 30;
+  else if (readinessCap >= 5 && minsThisWeek < 60)  recLength = 30;
+  else if (readinessCap >= 5)                        recLength = 20;
+  else                                               recLength = 20;
+
+  // ── Best instructor for target length ────────────────────
+  const instrMap = {};
+  cyRides.filter(d => d._length === recLength && d._instructor).forEach(d => {
+    if (!instrMap[d._instructor]) instrMap[d._instructor] = [];
+    instrMap[d._instructor].push(wpm(d));
+  });
+  const bestInstr = Object.entries(instrMap)
+    .map(([k,v]) => [k, avg(v)])
+    .sort((a,b) => b[1]-a[1])[0];
+
+  // ── Personal records ──────────────────────────────────────
+  const maxWatts = Math.max(...allRides.map(d => d._watts));
+  const maxWpm   = Math.max(...allRides.map(wpm));
+  const lastWpm  = wpm(lastCyRide);
+  const nearPR   = lastWpm >= maxWpm * 0.97;
+
+  // ── Weekly streak ─────────────────────────────────────────
+  let streak = 0;
+  const checkDay = new Date(today);
+  for (let i = 0; i < 60; i++) {
+    const dayStr = checkDay.toDateString();
+    if (allData.some(d => d._date.toDateString() === dayStr)) streak++;
+    else if (i > 0) break;
+    checkDay.setDate(checkDay.getDate() - 1);
+  }
+
+  // ── Trend insight ─────────────────────────────────────────
+  const wpm12w = rides84.length ? avg(rides84.map(wpm)) : baselineWpm;
+  const trendPct = baselineWpm > 0 ? ((wpm28 - wpm12w) / wpm12w * 100) : 0;
+  const trendDir = trendPct > 2 ? 'up' : trendPct < -2 ? 'down' : 'flat';
+  const trendMsg = trendDir === 'up'
+    ? 'Your watts/min is trending <strong style="color:var(--green)">up ' + Math.abs(trendPct).toFixed(1) + '%</strong> over the last 4 weeks vs your 12-week average. Keep building.'
+    : trendDir === 'down'
+    ? 'Your watts/min is trending <strong style="color:var(--accent)">down ' + Math.abs(trendPct).toFixed(1) + '%</strong> vs your 12-week average. Focus on consistency.'
+    : 'Your watts/min is <strong style="color:var(--accent2)">holding steady</strong> vs your 12-week average.';
+
+  // ── What to watch ─────────────────────────────────────────
+  // Find the metric that's been declining most over the last 8 rides
+  const last8 = cyRides.slice(-8);
+  const prev8 = cyRides.slice(-16, -8);
+  let focusMsg = '';
+  if (last8.length >= 4 && prev8.length >= 4) {
+    const cadLast = avg(last8.filter(d=>d._cadence>0).map(d=>d._cadence));
+    const cadPrev = avg(prev8.filter(d=>d._cadence>0).map(d=>d._cadence));
+    const hrLast  = avg(last8.filter(d=>d._hr>0).map(d=>d._hr));
+    const hrPrev  = avg(prev8.filter(d=>d._hr>0).map(d=>d._hr));
+    const wLast   = avg(last8.map(d=>d._watts));
+    const wPrev   = avg(prev8.map(d=>d._watts));
+    if (cadPrev > 0 && cadLast < cadPrev * 0.97)
+      focusMsg = 'Your cadence has dropped <strong style="color:var(--accent)">' + Math.round(cadPrev - cadLast) + ' RPM</strong> over your last 8 rides. Focus on spinning today.';
+    else if (wPrev > 0 && wLast < wPrev * 0.96)
+      focusMsg = 'Your watts have dipped <strong style="color:var(--accent)">' + Math.round(wPrev - wLast) + 'W</strong> vs the prior 8 rides. Push your target range today.';
+    else if (hrPrev > 0 && hrLast > hrPrev * 1.04)
+      focusMsg = 'Your heart rate is running <strong style="color:var(--accent2)">' + Math.round(hrLast - hrPrev) + ' BPM higher</strong> than usual — you may need more recovery.';
+    else
+      focusMsg = 'All metrics are tracking well. Focus on hitting your target watts range today.';
+  } else {
+    focusMsg = 'Build more ride history for personalised coaching tips.';
+  }
+
+  // ── Render ─────────────────────────────────────────────────
+  const todayStr = today.toLocaleDateString('en-US', { weekday:'long', month:'long', day:'numeric' });
+
+  el.innerHTML =
+    // Date header
+    '<div style="display:flex;align-items:baseline;justify-content:space-between;margin-bottom:20px;flex-wrap:wrap;gap:8px">' +
+    '<div style="font-family:\'Bebas Neue\',sans-serif;font-size:32px;color:var(--text);letter-spacing:2px">' + todayStr + '</div>' +
+    (streak > 1 ? '<div style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--accent2)"><span class="streak-flame">🔥</span><span style="font-family:\'DM Mono\',monospace;font-weight:600">' + streak + '</span><span style="color:var(--muted)">day streak</span></div>' : '') +
+    '</div>' +
+
+    // Three-column grid
+    '<div class="today-grid">' +
+
+    // ── Col 1: Readiness ──
+    '<div class="panel today-hero">' +
+    '<div class="panel-title">Readiness</div>' +
+    '<div class="readiness-ring">' +
+    '<div class="readiness-score" style="color:' + rColor + '">' + readinessCap + '</div>' +
+    '<div class="readiness-label" style="color:' + rColor + '">' + rLabel + '</div>' +
+    '<div class="readiness-desc">' + rDesc + '</div>' +
+    '</div>' +
+    '<div style="margin-top:16px">' +
+    '<div class="today-metric-row"><span class="today-metric-label">Days since last ride</span><span class="today-metric-val">' + daysSinceLast + (daysSinceLast === 1 ? ' day' : ' days') + '</span></div>' +
+    '<div class="today-metric-row"><span class="today-metric-label">Rides this week</span><span class="today-metric-val">' + rides7.length + '</span></div>' +
+    '<div class="today-metric-row"><span class="today-metric-label">Rides this month</span><span class="today-metric-val">' + rides28.length + '</span></div>' +
+    '<div class="today-metric-row"><span class="today-metric-label">Recent vs baseline</span><span class="today-metric-val" style="color:' + (recentVsChron >= 1 ? 'var(--green)' : 'var(--accent)') + '">' + (recentVsChron >= 1 ? '+' : '') + ((recentVsChron - 1) * 100).toFixed(0) + '%</span></div>' +
+    '</div>' +
+    '</div>' +
+
+    // ── Col 2–3: Recommendation ──
+    '<div class="panel today-rec">' +
+    '<div class="panel-title">Today\'s Recommendation</div>' +
+    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px">' +
+
+    // Ride length card
+    '<div style="background:var(--surface2);border-radius:8px;padding:14px 16px">' +
+    '<div style="font-size:10px;text-transform:uppercase;letter-spacing:1px;color:var(--muted);margin-bottom:6px">Ride Length</div>' +
+    '<div style="font-family:\'Bebas Neue\',sans-serif;font-size:42px;color:var(--accent2);line-height:1">' + recLength + '</div>' +
+    '<div style="font-size:11px;color:var(--muted)">minutes</div>' +
+    (minsThisWeek > 0 ? '<div style="font-size:10px;color:var(--muted);margin-top:6px">' + minsThisWeek + ' min ridden this week</div>' : '') +
+    '</div>' +
+
+    // Target watts card
+    '<div style="background:var(--surface2);border-radius:8px;padding:14px 16px">' +
+    '<div style="font-size:10px;text-transform:uppercase;letter-spacing:1px;color:var(--muted);margin-bottom:6px">Target Watts</div>' +
+    '<div class="target-band">' +
+    '<span style="font-family:\'Bebas Neue\',sans-serif;font-size:32px;color:var(--accent3);line-height:1">' + targetWattsLow + '</span>' +
+    '<span class="target-sep" style="font-size:18px">–</span>' +
+    '<span style="font-family:\'Bebas Neue\',sans-serif;font-size:32px;color:var(--accent3);line-height:1">' + targetWattsHigh + '</span>' +
+    '</div>' +
+    '<div style="font-size:11px;color:var(--muted)">watts</div>' +
+    '<div style="font-size:10px;color:var(--muted);margin-top:6px">Baseline ' + Math.round(avgWatts28) + 'W · 28-day avg</div>' +
+    '</div>' +
+    '</div>' +
+
+    // Instructor suggestion
+    (bestInstr ? '<div style="display:flex;align-items:center;gap:10px;padding:12px 14px;background:var(--surface2);border-radius:8px;margin-bottom:12px">' +
+    '<div style="font-size:22px">🎧</div>' +
+    '<div><div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.8px;margin-bottom:2px">Suggested Instructor · ' + recLength + ' min rides</div>' +
+    '<div style="font-size:14px;font-weight:600;color:var(--text)">' + bestInstr[0] + '</div>' +
+    '<div style="font-size:11px;color:var(--muted)">Avg ' + bestInstr[1].toFixed(2) + ' W/min with you · best match for this length</div>' +
+    '</div></div>' : '') +
+
+    // What to watch
+    '<div style="font-size:11px;text-transform:uppercase;letter-spacing:1px;color:var(--muted);margin-bottom:6px">What to Watch Today</div>' +
+    '<div class="insight-card">' + focusMsg + '</div>' +
+    '</div>' + // end today-rec
+    '</div>' + // end today-grid
+
+    // ── Trend + PR row ──
+    '<div class="chart-grid" style="margin-top:0">' +
+
+    '<div class="panel">' +
+    '<div class="panel-title">4-Week Trend</div>' +
+    '<div style="font-size:13px;color:var(--label);line-height:1.75">' + trendMsg + '</div>' +
+    '<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:14px">' +
+    statBox('7-day avg', Math.round(wpm7 * 100)/100 + ' W/m', '') +
+    statBox('28-day avg', Math.round(wpm28 * 100)/100 + ' W/m', '') +
+    statBox('All-time avg', Math.round(baselineWpm * 100)/100 + ' W/m', '') +
+    '</div>' +
+    '</div>' +
+
+    '<div class="panel">' +
+    '<div class="panel-title">Personal Bests</div>' +
+    '<div style="display:flex;flex-direction:column;gap:0">' +
+    prRow('Best Watts', Math.round(maxWatts) + 'W', '') +
+    prRow('Best Watts/Min', maxWpm.toFixed(2), '') +
+    prRow('Last Ride Watts', Math.round(lastCyRide._watts) + 'W', nearPR ? 'Near PB!' : '') +
+    prRow('Last Ride W/Min', lastWpm.toFixed(2), nearPR ? 'Near PB!' : '') +
+    prRow('Best Streak', (function(){ const days=[...new Set(allData.map(d=>d._date.toDateString()))].map(d=>new Date(d)).sort((a,b)=>a-b); let mx=0,c=0; for(let i=0;i<days.length;i++){if(i===0)c=1;else c=(days[i]-days[i-1])/86400000===1?c+1:1;mx=Math.max(mx,c);} return mx; })() + ' days', '') +
+    '</div>' +
+    '</div>' +
+
+    '</div>'; // end chart-grid
+}
+
+function statBox(label, val, sub) {
+  return '<div style="background:var(--surface2);border-radius:8px;padding:12px">' +
+    '<div style="font-size:10px;text-transform:uppercase;letter-spacing:.8px;color:var(--muted);margin-bottom:4px">' + label + '</div>' +
+    '<div style="font-family:\'DM Mono\',monospace;font-size:14px;color:var(--text);font-weight:500">' + val + '</div>' +
+    (sub ? '<div style="font-size:10px;color:var(--muted);margin-top:2px">' + sub + '</div>' : '') +
+    '</div>';
+}
+
+function prRow(label, val, badge) {
+  return '<div class="today-metric-row">' +
+    '<span class="today-metric-label">' + label + '</span>' +
+    '<span style="display:flex;align-items:center;gap:6px">' +
+    '<span class="today-metric-val">' + val + '</span>' +
+    (badge ? '<span class="pr-badge">&#127942; ' + badge + '</span>' : '') +
+    '</span></div>';
+}
 
 // ── OVERVIEW ──────────────────────────────────────────────────
 function buildOverview() {
