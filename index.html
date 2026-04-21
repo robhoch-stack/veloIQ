@@ -930,63 +930,77 @@ let logSearch = '', logDisc = '', logYearF = '';
 let compareSelected = new Set(); // indices into allData
 
 // ── IMPORT ────────────────────────────────────────────────────
-const fileInput  = document.getElementById('file-input');
-const importBtn  = document.getElementById('import-btn');
-const dropZone   = document.getElementById('drop-zone');
-const dropLabel  = document.getElementById('drop-label');
-const dropIcon   = document.getElementById('drop-icon');
+const fileInput    = document.getElementById('file-input');
+const importBtn    = document.getElementById('import-btn');
+const dropZone     = document.getElementById('drop-zone');
+const dropLabel    = document.getElementById('drop-label');
+const dropIcon     = document.getElementById('drop-icon');
 const importStatus = document.getElementById('import-status');
-let pendingFile  = null;
+let pendingFile    = null;
 
 function setImportStatus(msg, color) {
+  if (!importStatus) return;
   importStatus.textContent = msg;
   importStatus.style.color = color || 'var(--muted)';
 }
 
+function resetImportUI() {
+  pendingFile = null;
+  if (dropLabel) dropLabel.textContent = 'Drop your Peloton CSV here';
+  if (dropIcon)  dropIcon.textContent  = '📊';
+  if (importBtn) { importBtn.disabled = true; importBtn.textContent = 'Import Workouts'; }
+  setImportStatus('', '');
+  if (fileInput) fileInput.value = '';
+}
+
 function stageFile(file) {
   if (!file) return;
-  // Validate file type by name since MIME type for CSV is inconsistent across OS
   if (!file.name.toLowerCase().endsWith('.csv')) {
     setImportStatus('⚠ File must be a .csv — please select your Peloton workouts export.', '#f97316');
     importBtn.disabled = true;
     return;
   }
   pendingFile = file;
-  dropLabel.textContent = file.name;
-  dropIcon.textContent = '✓';
+  if (dropLabel) dropLabel.textContent = file.name;
+  if (dropIcon)  dropIcon.textContent  = '✓';
   importBtn.disabled = false;
-  setImportStatus(`Ready · ${(file.size / 1024).toFixed(1)} KB`, 'var(--green)');
+  setImportStatus('Ready · ' + (file.size / 1024).toFixed(1) + ' KB', 'var(--green)');
 }
 
-// Click on drop-zone opens file picker
-dropZone.addEventListener('click', () => {
-  // Reset value so selecting the same file again still fires change
-  fileInput.value = '';
-  fileInput.click();
-});
+// Click on drop-zone opens the hidden file picker
+if (dropZone) {
+  dropZone.addEventListener('click', () => {
+    if (fileInput) { fileInput.value = ''; fileInput.click(); }
+  });
+  dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+  dropZone.addEventListener('dragleave', e => { if (!dropZone.contains(e.relatedTarget)) dropZone.classList.remove('drag-over'); });
+  dropZone.addEventListener('drop', e => {
+    e.preventDefault();
+    dropZone.classList.remove('drag-over');
+    stageFile(e.dataTransfer.files[0]);
+  });
+}
 
-// File selected via picker
-fileInput.addEventListener('change', e => {
-  stageFile(e.target.files[0]);
-});
+if (fileInput) {
+  fileInput.addEventListener('change', e => {
+    const f = e.target.files && e.target.files[0];
+    if (f) stageFile(f);
+  });
+}
 
-// Drag-and-drop
-dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
-dropZone.addEventListener('dragleave', e => { if (!dropZone.contains(e.relatedTarget)) dropZone.classList.remove('drag-over'); });
-dropZone.addEventListener('drop', e => {
-  e.preventDefault();
-  dropZone.classList.remove('drag-over');
-  stageFile(e.dataTransfer.files[0]);
-});
-
-importBtn.addEventListener('click', () => {
-  if (pendingFile) {
+if (importBtn) {
+  importBtn.addEventListener('click', () => {
+    if (!pendingFile) {
+      setImportStatus('⚠ Please select a file first.', '#f97316');
+      return;
+    }
     importBtn.disabled = true;
     importBtn.textContent = 'Importing…';
     setImportStatus('Reading file…', 'var(--muted)');
-    readCSV(pendingFile);
-  }
-});
+    // Small timeout so the UI updates before the main thread parses the CSV
+    setTimeout(() => readCSV(pendingFile), 30);
+  });
+}
 
 // ── AUTO-RESTORE FROM LOCALSTORAGE ON REFRESH ────────────────
 (function() {
@@ -1034,6 +1048,7 @@ if (localStorage.getItem('veloiq_data') && loadStoredBtn) {
 document.getElementById('re-import-btn').addEventListener('click', () => {
   document.getElementById('app').classList.remove('visible');
   document.getElementById('import-screen').classList.remove('hidden');
+  resetImportUI();
 });
 document.getElementById('clear-btn').addEventListener('click', () => {
   if (confirm('Delete all saved workout data?\n\nThis will remove your imported workouts from this browser. You will need to re-import your Peloton CSV to use VeloIQ again.\n\nThis cannot be undone.')) {
@@ -1089,16 +1104,15 @@ function readCSV(file) {
 
     } catch(parseErr) {
       console.error('CSV parse error:', parseErr);
-      setImportStatus('⚠ Failed to parse file: ' + parseErr.message, '#e8413e');
-      importBtn.disabled = false;
-      importBtn.textContent = 'Import Workouts';
+      setImportStatus('⚠ Failed to parse: ' + parseErr.message, '#e8413e');
+      if (importBtn) { importBtn.disabled = false; importBtn.textContent = 'Try Again'; }
     }
   };
 
-  reader.onerror = () => {
+  reader.onerror = err => {
+    console.error('FileReader error:', err);
     setImportStatus('⚠ Could not read file — try again or use a different browser.', '#e8413e');
-    importBtn.disabled = false;
-    importBtn.textContent = 'Import Workouts';
+    if (importBtn) { importBtn.disabled = false; importBtn.textContent = 'Try Again'; }
   };
 
   reader.readAsText(file, 'UTF-8');
@@ -1148,16 +1162,26 @@ function expandRow(r) {
 }
 
 function parseCSV(text) {
-  const lines = text.trim().split('\n');
+  // Strip UTF-8 BOM if present (Peloton sometimes includes it)
+  if (text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
+  // Normalise Windows (CRLF) and old Mac (CR) line endings
+  text = text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+  const lines = text.trim().split('\n').filter(l => l.trim() !== '');
+  if (lines.length < 2) return [];
   const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''));
-  return lines.slice(1).map(line => {
+  const rows = [];
+  for (let li = 1; li < lines.length; li++) {
+    const line = lines[li];
+    if (!line.trim()) continue;
     const cols = splitCSVLine(line);
     const obj = {};
     headers.forEach((h, i) => obj[h] = (cols[i] || '').trim().replace(/^"|"$/g, ''));
     const rawDate = obj['Workout Timestamp'] || '';
     const dateStr = rawDate.replace(/\s\(.*\)/, '');
     obj._date = new Date(dateStr);
+    if (isNaN(obj._date.getTime())) continue; // skip unparseable rows
     obj._year = obj._date.getFullYear();
+    if (obj._year < 2000 || obj._year > 2100) continue; // sanity check
     obj._month = obj._date.getMonth();
     obj._length = parseInt(obj['Length (minutes)']) || 0;
     obj._discipline = obj['Fitness Discipline'] || 'Other';
@@ -1171,8 +1195,9 @@ function parseCSV(text) {
     obj._distance = parseFloat(obj['Distance (mi)']) || 0;
     obj._resistance = obj['Avg. Resistance'] || '';
     obj._title = obj['Title'] || '';
-    return obj;
-  }).filter(r => !isNaN(r._date.getTime()) && r._year > 2000);
+    rows.push(obj);
+  }
+  return rows;
 }
 
 function splitCSVLine(line) {
@@ -1533,9 +1558,8 @@ function buildCadenceBar() {
 function buildInstructorCorrelation() {
   const sortEl     = document.getElementById('inst-sort');
   const minRidesEl = document.getElementById('inst-min-rides');
-  if (!sortEl) return;
+  if (!sortEl || !minRidesEl) return;
 
-  // Wire controls (once — guard with flag)
   if (!sortEl.dataset.wired) {
     sortEl.addEventListener('change', buildInstructorCorrelation);
     minRidesEl.addEventListener('change', buildInstructorCorrelation);
@@ -1545,7 +1569,6 @@ function buildInstructorCorrelation() {
   const sortBy   = sortEl.value;
   const minRides = parseInt(minRidesEl.value);
 
-  // Build per-instructor stats from filteredCy
   const map = {};
   filteredCy.forEach(d => {
     if (!d._instructor || d._watts <= 0) return;
@@ -1560,11 +1583,9 @@ function buildInstructorCorrelation() {
     map[d._instructor].rides++;
   });
 
-  // Overall baseline (all instructors combined)
-  const allWpm = filteredCy.filter(d => d._watts > 0 && d._length > 0).map(d => d._watts / d._length);
+  const allWpm      = filteredCy.filter(d => d._watts > 0 && d._length > 0).map(d => d._watts / d._length);
   const baselineWpm = avg(allWpm) || 1;
 
-  // Build entries — only instructors with enough rides
   let entries = Object.entries(map)
     .filter(([, v]) => v.rides >= minRides)
     .map(([name, v]) => {
@@ -1574,122 +1595,125 @@ function buildInstructorCorrelation() {
       const avgCad    = v.cad.length ? avg(v.cad) : null;
       const avgHr     = v.hr.length  ? avg(v.hr)  : null;
       const perfIndex = avgWpm / baselineWpm;
-
-      // Standard deviation of wpm for confidence band
-      const mean = avgWpm;
-      const variance = v.wpm.reduce((s, x) => s + (x - mean) ** 2, 0) / v.wpm.length;
-      const stdDev = Math.sqrt(variance);
-      const cv = mean > 0 ? stdDev / mean : 0; // coefficient of variation
-
-      // Confidence: more rides + low variance = higher confidence
+      const mean      = avgWpm;
+      const variance  = v.wpm.reduce((s, x) => s + (x - mean) ** 2, 0) / v.wpm.length;
+      const stdDev    = Math.sqrt(variance);
+      const cv        = mean > 0 ? stdDev / mean : 0;
       const confidence = Math.min(1, (v.rides / 20) * (1 - Math.min(cv, 0.5) * 1.2));
-
       return { name, avgWatts, avgWpm, avgOpm, avgCad, avgHr, perfIndex, rides: v.rides, confidence, stdDev };
     });
 
-  // Sort
   const sortFns = {
-    index:  (a,b) => b.perfIndex - a.perfIndex,
-    watts:  (a,b) => b.avgWatts  - a.avgWatts,
-    wpm:    (a,b) => b.avgWpm    - a.avgWpm,
-    rides:  (a,b) => b.rides     - a.rides,
+    index: (a,b) => b.perfIndex - a.perfIndex,
+    watts: (a,b) => b.avgWatts  - a.avgWatts,
+    wpm:   (a,b) => b.avgWpm    - a.avgWpm,
+    rides: (a,b) => b.rides     - a.rides,
   };
   entries.sort(sortFns[sortBy] || sortFns.index);
 
+  const el = document.getElementById('inst-correlation-table');
   if (!entries.length) {
-    document.getElementById('inst-correlation-table').innerHTML =
-      '<div style="color:var(--muted);font-size:12px;padding:20px 0">No instructors with enough rides match current filters.</div>';
+    el.innerHTML = '<div style="color:var(--muted);font-size:12px;padding:20px 0">No instructors with enough rides match current filters.</div>';
     return;
   }
 
   const maxWatts = Math.max(...entries.map(e => e.avgWatts));
   const maxWpm   = Math.max(...entries.map(e => e.avgWpm));
-  const topIndex = Math.max(...entries.map(e => e.perfIndex));
 
-  // Render
-  let html = \`
-    <div style="overflow-x:auto;-webkit-overflow-scrolling:touch">
-    <table style="width:100%;border-collapse:collapse;font-size:12px;min-width:560px">
-      <thead>
-        <tr style="border-bottom:2px solid var(--border)">
-          <th style="text-align:left;padding:8px 10px;font-size:10px;text-transform:uppercase;letter-spacing:1px;color:var(--muted);width:160px">Instructor</th>
-          <th style="text-align:center;padding:8px 6px;font-size:10px;text-transform:uppercase;letter-spacing:1px;color:var(--muted)">Rides</th>
-          <th style="text-align:left;padding:8px 10px;font-size:10px;text-transform:uppercase;letter-spacing:1px;color:var(--muted)">Perf Index</th>
-          <th style="text-align:left;padding:8px 10px;font-size:10px;text-transform:uppercase;letter-spacing:1px;color:var(--muted)">Avg Watts</th>
-          <th style="text-align:left;padding:8px 10px;font-size:10px;text-transform:uppercase;letter-spacing:1px;color:var(--muted)">Watts / Min</th>
-          <th style="text-align:center;padding:8px 6px;font-size:10px;text-transform:uppercase;letter-spacing:1px;color:var(--muted)">Cadence</th>
-          <th style="text-align:center;padding:8px 6px;font-size:10px;text-transform:uppercase;letter-spacing:1px;color:var(--muted)">Confidence</th>
-        </tr>
-      </thead>
-      <tbody>
-  \`;
+  let html = '<div style="overflow-x:auto;-webkit-overflow-scrolling:touch">';
+  html += '<table style="width:100%;border-collapse:collapse;font-size:12px;min-width:560px">';
+  html += '<thead><tr style="border-bottom:2px solid var(--border)">';
+  html += '<th style="text-align:left;padding:8px 10px;font-size:10px;text-transform:uppercase;letter-spacing:1px;color:var(--muted);width:160px">Instructor</th>';
+  html += '<th style="text-align:center;padding:8px 6px;font-size:10px;text-transform:uppercase;letter-spacing:1px;color:var(--muted)">Rides</th>';
+  html += '<th style="text-align:left;padding:8px 10px;font-size:10px;text-transform:uppercase;letter-spacing:1px;color:var(--muted)">Perf Index</th>';
+  html += '<th style="text-align:left;padding:8px 10px;font-size:10px;text-transform:uppercase;letter-spacing:1px;color:var(--muted)">Avg Watts</th>';
+  html += '<th style="text-align:left;padding:8px 10px;font-size:10px;text-transform:uppercase;letter-spacing:1px;color:var(--muted)">Watts / Min</th>';
+  html += '<th style="text-align:center;padding:8px 6px;font-size:10px;text-transform:uppercase;letter-spacing:1px;color:var(--muted)">Cadence</th>';
+  html += '<th style="text-align:center;padding:8px 6px;font-size:10px;text-transform:uppercase;letter-spacing:1px;color:var(--muted)">Confidence</th>';
+  html += '</tr></thead><tbody>';
 
-  entries.forEach((e, i) => {
-    const isTop   = i === 0;
-    const rowBg   = i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,.02)';
-    const idxColor = e.perfIndex >= 1.05 ? 'var(--green)' : e.perfIndex >= 0.98 ? 'var(--accent2)' : '#e8413e';
-    const idxArrow = e.perfIndex >= 1.05 ? '↑' : e.perfIndex >= 0.98 ? '→' : '↓';
-    const wattsPct = (e.avgWatts / maxWatts) * 100;
-    const wpmPct   = (e.avgWpm   / maxWpm)   * 100;
-    const confDots = Math.round(e.confidence * 5);
+  entries.forEach(function(e, i) {
+    const rowBg     = i % 2 === 0 ? 'transparent' : 'rgba(255,255,255,.02)';
+    const idxColor  = e.perfIndex >= 1.05 ? 'var(--green)' : e.perfIndex >= 0.98 ? 'var(--accent2)' : '#e8413e';
+    const idxArrow  = e.perfIndex >= 1.05 ? '&#8593;' : e.perfIndex >= 0.98 ? '&#8594;' : '&#8595;';
+    const wattsPct  = Math.round((e.avgWatts / maxWatts) * 100);
+    const wpmPct    = Math.round((e.avgWpm   / maxWpm)   * 100);
+    const confDots  = Math.round(e.confidence * 5);
     const confColor = e.confidence > 0.7 ? 'var(--green)' : e.confidence > 0.4 ? 'var(--accent2)' : 'var(--muted)';
     const confLabel = e.confidence > 0.7 ? 'High' : e.confidence > 0.4 ? 'Medium' : 'Low';
-    const firstName = e.name.split(' ')[0];
+    const pctDiff   = ((e.perfIndex - 1) * 100).toFixed(1);
+    const pctLabel  = (e.perfIndex >= 1.0 ? '+' : '') + pctDiff + '% vs baseline';
+    const trophy    = i === 0 ? ' &#127942;' : '';
+    const cadence   = e.avgCad ? Math.round(e.avgCad) + ' rpm' : '&mdash;';
 
-    html += \`
-      <tr style="background:\${rowBg};border-bottom:1px solid rgba(42,42,62,.4)">
-        <td style="padding:10px 10px">
-          <div style="font-weight:600;color:var(--text);font-size:12px">\${e.name}\${isTop ? ' <span style="font-size:10px">🏆</span>' : ''}</div>
-          <div style="font-size:10px;color:var(--muted);margin-top:1px">\${e.rides} ride\${e.rides>1?'s':''}</div>
-        </td>
-        <td style="padding:10px 6px;text-align:center;font-family:'DM Mono',monospace;color:var(--label)">\${e.rides}</td>
-        <td style="padding:10px 10px">
-          <div style="display:flex;align-items:center;gap:6px">
-            <span style="font-family:'DM Mono',monospace;font-size:14px;font-weight:700;color:\${idxColor}">\${e.perfIndex.toFixed(2)}</span>
-            <span style="font-size:12px;color:\${idxColor}">\${idxArrow}</span>
-          </div>
-          <div style="font-size:10px;color:var(--muted);margin-top:2px">\${e.perfIndex >= 1.0 ? '+' : ''}\${((e.perfIndex-1)*100).toFixed(1)}% vs baseline</div>
-        </td>
-        <td style="padding:10px 10px;min-width:120px">
-          <div style="font-family:'DM Mono',monospace;color:var(--text);margin-bottom:4px">\${Math.round(e.avgWatts)}W</div>
-          <div style="height:4px;background:var(--surface2);border-radius:99px;width:100%">
-            <div style="height:4px;width:\${wattsPct}%;background:var(--accent2);border-radius:99px"></div>
-          </div>
-        </td>
-        <td style="padding:10px 10px;min-width:120px">
-          <div style="font-family:'DM Mono',monospace;color:var(--text);margin-bottom:4px">\${e.avgWpm.toFixed(2)}</div>
-          <div style="height:4px;background:var(--surface2);border-radius:99px;width:100%">
-            <div style="height:4px;width:\${wpmPct}%;background:var(--accent3);border-radius:99px"></div>
-          </div>
-        </td>
-        <td style="padding:10px 6px;text-align:center;font-family:'DM Mono',monospace;color:var(--label)">\${e.avgCad ? Math.round(e.avgCad)+' rpm' : '—'}</td>
-        <td style="padding:10px 6px;text-align:center">
-          <div style="font-size:10px;color:\${confColor};font-weight:600">\${confLabel}</div>
-          <div style="display:flex;justify-content:center;gap:2px;margin-top:3px">
-            \${[1,2,3,4,5].map(d => \`<div style="width:6px;height:6px;border-radius:50%;background:\${d<=confDots?confColor:'var(--surface2)'}" ></div>\`).join('')}
-          </div>
-        </td>
-      </tr>\`;
+    // Build confidence dots
+    let dots = '';
+    for (let d = 1; d <= 5; d++) {
+      const bg = d <= confDots ? confColor : 'var(--surface2)';
+      dots += '<div style="width:6px;height:6px;border-radius:50%;background:' + bg + '"></div>';
+    }
+
+    html += '<tr style="background:' + rowBg + ';border-bottom:1px solid rgba(42,42,62,.4)">';
+
+    // Instructor name cell
+    html += '<td style="padding:10px 10px">';
+    html += '<div style="font-weight:600;color:var(--text);font-size:12px">' + e.name + trophy + '</div>';
+    html += '<div style="font-size:10px;color:var(--muted);margin-top:1px">' + e.rides + (e.rides > 1 ? ' rides' : ' ride') + '</div>';
+    html += '</td>';
+
+    // Rides count
+    html += '<td style="padding:10px 6px;text-align:center;font-family:\'DM Mono\',monospace;color:var(--label)">' + e.rides + '</td>';
+
+    // Performance index
+    html += '<td style="padding:10px 10px">';
+    html += '<div style="display:flex;align-items:center;gap:6px">';
+    html += '<span style="font-family:\'DM Mono\',monospace;font-size:14px;font-weight:700;color:' + idxColor + '">' + e.perfIndex.toFixed(2) + '</span>';
+    html += '<span style="font-size:12px;color:' + idxColor + '">' + idxArrow + '</span>';
+    html += '</div>';
+    html += '<div style="font-size:10px;color:var(--muted);margin-top:2px">' + pctLabel + '</div>';
+    html += '</td>';
+
+    // Avg watts with bar
+    html += '<td style="padding:10px 10px;min-width:120px">';
+    html += '<div style="font-family:\'DM Mono\',monospace;color:var(--text);margin-bottom:4px">' + Math.round(e.avgWatts) + 'W</div>';
+    html += '<div style="height:4px;background:var(--surface2);border-radius:99px">';
+    html += '<div style="height:4px;width:' + wattsPct + '%;background:var(--accent2);border-radius:99px"></div></div>';
+    html += '</td>';
+
+    // Watts/min with bar
+    html += '<td style="padding:10px 10px;min-width:120px">';
+    html += '<div style="font-family:\'DM Mono\',monospace;color:var(--text);margin-bottom:4px">' + e.avgWpm.toFixed(2) + '</div>';
+    html += '<div style="height:4px;background:var(--surface2);border-radius:99px">';
+    html += '<div style="height:4px;width:' + wpmPct + '%;background:var(--accent3);border-radius:99px"></div></div>';
+    html += '</td>';
+
+    // Cadence
+    html += '<td style="padding:10px 6px;text-align:center;font-family:\'DM Mono\',monospace;color:var(--label)">' + cadence + '</td>';
+
+    // Confidence
+    html += '<td style="padding:10px 6px;text-align:center">';
+    html += '<div style="font-size:10px;color:' + confColor + ';font-weight:600">' + confLabel + '</div>';
+    html += '<div style="display:flex;justify-content:center;gap:2px;margin-top:3px">' + dots + '</div>';
+    html += '</td>';
+
+    html += '</tr>';
   });
 
   html += '</tbody></table></div>';
 
-  // Summary insight below table
   if (entries.length >= 2) {
     const top = entries[0];
     const bot = entries[entries.length - 1];
-    const diff = ((top.perfIndex - bot.perfIndex) * 100).toFixed(1);
-    html += \`<div style="margin-top:14px;padding:12px 14px;background:rgba(59,130,246,.08);border-left:2px solid var(--accent3);border-radius:0 6px 6px 0;font-size:12px;color:var(--label);line-height:1.6">
-      💡 You ride <strong style="color:var(--text)">\${diff}% harder</strong> with
-      <strong style="color:var(--green)">\${top.name.split(' ')[0]}</strong> than with
-      <strong style="color:var(--accent)">\${bot.name.split(' ')[0]}</strong> on a watts/min basis.
-      Confidence is based on ride count and output consistency.
-    </div>\`;
+    const diff = Math.abs((top.perfIndex - bot.perfIndex) * 100).toFixed(1);
+    html += '<div style="margin-top:14px;padding:12px 14px;background:rgba(59,130,246,.08);border-left:2px solid var(--accent3);border-radius:0 6px 6px 0;font-size:12px;color:var(--label);line-height:1.6">';
+    html += '&#128161; You ride <strong style="color:var(--text)">' + diff + '% harder</strong> with ';
+    html += '<strong style="color:var(--green)">' + top.name.split(' ')[0] + '</strong> than with ';
+    html += '<strong style="color:var(--accent)">' + bot.name.split(' ')[0] + '</strong> on a watts/min basis. ';
+    html += 'Confidence is based on ride count and output consistency.</div>';
   }
 
-  document.getElementById('inst-correlation-table').innerHTML = html;
+  el.innerHTML = html;
 }
-
 // ── ACTIVITY ──────────────────────────────────────────────────
 function buildActivity() {
   const totalCal = allData.reduce((s,d)=>s+d._calories,0);
@@ -1699,11 +1723,11 @@ function buildActivity() {
   const strength = allData.filter(d=>d._discipline==='Strength').length;
 
   document.getElementById('act-kpis').innerHTML = [
-    { val: Math.round(totalCal).toLocaleString(), label: 'Total Calories', sub: `~${Math.round(totalCal/allData.length)} per session`, color: 'red' },
-    { val: walks.length.toLocaleString(), label: 'Walks', sub: `${Math.round(walkDist)} miles`, color: 'green' },
+    { val: Math.round(totalCal).toLocaleString(), label: 'Total Calories', sub: '~'+Math.round(totalCal/allData.length)+' per session', color: 'red' },
+    { val: walks.length.toLocaleString(), label: 'Walks', sub: Math.round(walkDist)+' miles', color: 'green' },
     { val: strength.toLocaleString(), label: 'Strength Sessions', sub: '', color: 'orange' },
     { val: Math.round(totalMin / allData.length), label: 'Avg Session (min)', sub: '', color: 'blue' },
-  ].map(k => `<div class="kpi ${k.color}"><div class="kpi-value">${k.val}</div><div class="kpi-label">${k.label}</div><div class="kpi-sub">${k.sub}</div></div>`).join('');
+  ].map(k => '<div class="kpi '+k.color+'"><div class="kpi-value">'+k.val+'</div><div class="kpi-label">'+k.label+'</div><div class="kpi-sub">'+k.sub+'</div></div>').join('');
 
   buildCalBar();
   buildDurBar();
@@ -1713,7 +1737,7 @@ function buildActivity() {
 function buildCalBar() {
   const map = {};
   allData.filter(d=>d._calories>0).forEach(d => {
-    const key = `${d._year}-${String(d._month+1).padStart(2,'0')}`;
+    const key = d._year+'-'+String(d._month+1).padStart(2,'0');
     map[key] = (map[key]||0) + d._calories;
   });
   const keys = Object.keys(map).sort().slice(-24);
@@ -1744,14 +1768,16 @@ function buildStreakVis() {
   if (cur > 1) streaks.push(cur);
   const top = [...streaks].sort((a,b)=>b-a).slice(0,10);
   const maxS = top[0] || 1;
-  document.getElementById('streak-vis').innerHTML = `
-    <div style="display:flex;flex-direction:column;gap:8px;padding-top:8px">
-      ${top.map((s,i)=>`<div style="display:flex;align-items:center;gap:10px;font-size:12px">
-        <div style="color:var(--muted);width:16px;font-family:'DM Mono',monospace">${i+1}</div>
-        <div class="prog-track" style="flex:1"><div class="prog-fill" style="width:${(s/maxS)*100}%;background:${i===0?'var(--accent)':'var(--accent3)'}"></div></div>
-        <div style="color:var(--text);font-family:'DM Mono',monospace;width:48px">${s} days</div>
-      </div>`).join('')}
-    </div>`;
+  document.getElementById('streak-vis').innerHTML =
+    '<div style="display:flex;flex-direction:column;gap:8px;padding-top:8px">' +
+    top.map((s,i) =>
+      '<div style="display:flex;align-items:center;gap:10px;font-size:12px">' +
+      '<div style="color:var(--muted);width:16px;font-family:\'DM Mono\',monospace">'+(i+1)+'</div>' +
+      '<div class="prog-track" style="flex:1"><div class="prog-fill" style="width:'+((s/maxS)*100)+'%;background:'+(i===0?'var(--accent)':'var(--accent3)')+'"></div></div>' +
+      '<div style="color:var(--text);font-family:\'DM Mono\',monospace;width:48px">'+s+' days</div>' +
+      '</div>'
+    ).join('') +
+    '</div>';
 }
 
 // ── LOG ────────────────────────────────────────────────────────
@@ -1759,9 +1785,9 @@ function buildLog() {
   const discs = [...new Set(allData.map(d=>d._discipline))].sort();
   const years = [...new Set(allData.map(d=>d._year))].sort();
   const dSel = document.getElementById('log-disc');
-  discs.forEach(d => dSel.innerHTML += `<option value="${d}">${d}</option>`);
+  discs.forEach(d => dSel.innerHTML += '<option value="'+d+'">'+d+'</option>');
   const ySel = document.getElementById('log-year-f');
-  years.forEach(y => ySel.innerHTML += `<option value="${y}">${y}</option>`);
+  years.forEach(y => ySel.innerHTML += '<option value="'+y+'">'+y+'</option>');
 
   document.getElementById('log-search').addEventListener('input', e => { logSearch = e.target.value.toLowerCase(); logPage = 0; renderLog(); });
   document.getElementById('log-disc').addEventListener('change', e => { logDisc = e.target.value; logPage = 0; renderLog(); });
@@ -1781,7 +1807,7 @@ function buildLog() {
 
 function renderLog() {
   let data = allData.filter(d => {
-    if (logSearch && !`${d._title} ${d._instructor} ${d._type} ${d._discipline}`.toLowerCase().includes(logSearch)) return false;
+    if (logSearch && !(d._title+' '+d._instructor+' '+d._type+' '+d._discipline).toLowerCase().includes(logSearch)) return false;
     if (logDisc && d._discipline !== logDisc) return false;
     if (logYearF && d._year !== parseInt(logYearF)) return false;
     return true;
@@ -1789,13 +1815,13 @@ function renderLog() {
   data = data.sort((a,b) => {
     const col = logSort.col;
     let av, bv;
-    if (col==='date') { av=a._date; bv=b._date; }
-    else if (col==='length') { av=a._length; bv=b._length; }
-    else if (col==='output') { av=a._output; bv=b._output; }
-    else if (col==='watts') { av=a._watts; bv=b._watts; }
-    else if (col==='calories') { av=a._calories; bv=b._calories; }
-    else if (col==='hr') { av=a._hr; bv=b._hr; }
-    else if (col==='discipline') { av=a._discipline; bv=b._discipline; }
+    if (col==='date')       { av=a._date; bv=b._date; }
+    else if (col==='length')    { av=a._length; bv=b._length; }
+    else if (col==='output')    { av=a._output; bv=b._output; }
+    else if (col==='watts')     { av=a._watts; bv=b._watts; }
+    else if (col==='calories')  { av=a._calories; bv=b._calories; }
+    else if (col==='hr')        { av=a._hr; bv=b._hr; }
+    else if (col==='discipline'){ av=a._discipline; bv=b._discipline; }
     else { av=a._date; bv=b._date; }
     if (av < bv) return -logSort.dir; if (av > bv) return logSort.dir; return 0;
   });
@@ -1804,7 +1830,8 @@ function renderLog() {
   logPage = Math.min(logPage, Math.max(0, maxPage));
   const page = data.slice(logPage * PAGE_SIZE, (logPage+1) * PAGE_SIZE);
 
-  document.getElementById('pager-info').textContent = `${(logPage*PAGE_SIZE+1).toLocaleString()}–${Math.min((logPage+1)*PAGE_SIZE, total).toLocaleString()} of ${total.toLocaleString()}`;
+  document.getElementById('pager-info').textContent =
+    (logPage*PAGE_SIZE+1).toLocaleString()+'–'+Math.min((logPage+1)*PAGE_SIZE, total).toLocaleString()+' of '+total.toLocaleString();
   document.getElementById('pg-prev').disabled = logPage === 0;
   document.getElementById('pg-next').disabled = logPage >= maxPage;
 
@@ -1818,21 +1845,20 @@ function renderLog() {
     const idx = allData.indexOf(d);
     const checked = compareSelected.has(idx);
     const disabled = !checked && compareSelected.size >= 3;
-    return `<tr class="${checked ? 'cmp-selected' : ''}" data-idx="${idx}">
-      <td style="text-align:center"><input type="checkbox" class="cmp-check" data-idx="${idx}" ${checked ? 'checked' : ''} ${disabled ? 'disabled' : ''}></td>
-      <td>${d._date.toLocaleDateString()}</td>
-      <td><span class="badge badge-${badgeClass(d._discipline)}">${d._discipline}</span></td>
-      <td>${d._length}</td>
-      <td>${d._title}</td>
-      <td>${d._instructor || '—'}</td>
-      <td>${d._output > 0 ? d._output : '—'}</td>
-      <td>${d._watts > 0 ? d._watts : '—'}</td>
-      <td>${d._calories > 0 ? Math.round(d._calories) : '—'}</td>
-      <td>${d._hr > 0 ? Math.round(d._hr) : '—'}</td>
-    </tr>`;
+    return '<tr class="'+(checked?'cmp-selected':'')+'" data-idx="'+idx+'">' +
+      '<td style="text-align:center"><input type="checkbox" class="cmp-check" data-idx="'+idx+'" '+(checked?'checked':'')+' '+(disabled?'disabled':'')+'></td>' +
+      '<td>'+d._date.toLocaleDateString()+'</td>' +
+      '<td><span class="badge badge-'+badgeClass(d._discipline)+'">'+d._discipline+'</span></td>' +
+      '<td>'+d._length+'</td>' +
+      '<td>'+d._title+'</td>' +
+      '<td>'+(d._instructor||'&mdash;')+'</td>' +
+      '<td>'+(d._output > 0 ? d._output : '&mdash;')+'</td>' +
+      '<td>'+(d._watts > 0 ? d._watts : '&mdash;')+'</td>' +
+      '<td>'+(d._calories > 0 ? Math.round(d._calories) : '&mdash;')+'</td>' +
+      '<td>'+(d._hr > 0 ? Math.round(d._hr) : '&mdash;')+'</td>' +
+      '</tr>';
   }).join('');
 
-  // Wire checkboxes
   tbody.querySelectorAll('.cmp-check').forEach(cb => {
     cb.addEventListener('change', () => {
       const idx = parseInt(cb.dataset.idx);
@@ -1844,118 +1870,12 @@ function renderLog() {
   });
 }
 
-// ── CHART HELPERS ─────────────────────────────────────────────
-const tt = document.getElementById('tooltip');
-
-function drawBarChart(svgId, labels, values, color, fmtLabel, fmtVal) {
-  const el = document.getElementById(svgId);
-  const parentW = el.parentElement.clientWidth || el.parentElement.getBoundingClientRect().width;
-  const W = (parentW > 60 ? parentW : 560) - 40;
-  const H = 200;
-  const pad = { t:12, r:10, b:36, l:44 };
-  const cW = W - pad.l - pad.r;
-  const cH = H - pad.t - pad.b;
-  const maxV = Math.max(...values, 1);
-  const barW = Math.max(2, cW / labels.length - 2);
-
-  let gridLines = '';
-  for (let i = 0; i <= 4; i++) {
-    const y = pad.t + cH - (i/4)*cH;
-    const v = Math.round((i/4)*maxV);
-    gridLines += `<line class="grid-line" x1="${pad.l}" y1="${y}" x2="${pad.l+cW}" y2="${y}"/>`;
-    gridLines += `<text class="axis-label" x="${pad.l-6}" y="${y+4}" text-anchor="end">${v}</text>`;
-  }
-
-  let bars = '';
-  const skip = Math.ceil(labels.length / 20);
-  labels.forEach((lbl, i) => {
-    const x = pad.l + i * (cW / labels.length) + (cW/labels.length - barW)/2;
-    const h = Math.max(1, (values[i]/maxV)*cH);
-    const y = pad.t + cH - h;
-    bars += `<rect class="bar-fill" x="${x}" y="${y}" width="${barW}" height="${h}" fill="${color}" rx="2"
-      data-lbl="${lbl}" data-val="${values[i]}"/>`;
-    if (i % skip === 0) {
-      bars += `<text class="axis-label" x="${x+barW/2}" y="${H-8}" text-anchor="middle">${lbl.length>6?lbl.slice(0,6):lbl}</text>`;
-    }
-  });
-
-  el.setAttribute('viewBox', `0 0 ${W} ${H}`);
-  el.innerHTML = gridLines + bars;
-  el.querySelectorAll('.bar-fill').forEach(bar => {
-    bar.addEventListener('mouseenter', e => {
-      tt.innerHTML = `<div class="tt-title">${bar.dataset.lbl}</div><div class="tt-row"><span>Value</span><span class="tt-val">${Number(bar.dataset.val).toLocaleString()}</span></div>`;
-      tt.classList.add('visible');
-    });
-    bar.addEventListener('mousemove', e => {
-      tt.style.left = (e.clientX + 12) + 'px';
-      tt.style.top = (e.clientY - 28) + 'px';
-    });
-    bar.addEventListener('mouseleave', () => tt.classList.remove('visible'));
-  });
-}
-
-function drawLineChart(svgId, labels, values, color) {
-  const el = document.getElementById(svgId);
-  const parentW = el.parentElement.clientWidth || el.parentElement.getBoundingClientRect().width;
-  const W = (parentW > 60 ? parentW : 560) - 40;
-  const H = 200;
-  const pad = { t:12, r:10, b:36, l:44 };
-  const cW = W - pad.l - pad.r;
-  const cH = H - pad.t - pad.b;
-  const minV = Math.min(...values);
-  const maxV = Math.max(...values, minV+1);
-  const range = maxV - minV;
-
-  const xScale = i => pad.l + (i/(labels.length-1||1))*cW;
-  const yScale = v => pad.t + cH - ((v-minV)/range)*cH;
-
-  let gridLines = '';
-  for (let i = 0; i <= 4; i++) {
-    const y = pad.t + (i/4)*cH;
-    const v = Math.round(maxV - (i/4)*range);
-    gridLines += `<line class="grid-line" x1="${pad.l}" y1="${y}" x2="${pad.l+cW}" y2="${y}"/>`;
-    gridLines += `<text class="axis-label" x="${pad.l-6}" y="${y+4}" text-anchor="end">${v}</text>`;
-  }
-
-  const pts = values.map((v,i) => `${xScale(i)},${yScale(v)}`).join(' ');
-  const firstX = xScale(0), lastX = xScale(values.length-1);
-  const areaPoints = `${firstX},${pad.t+cH} ${pts} ${lastX},${pad.t+cH}`;
-
-  const skip = Math.ceil(labels.length / 10);
-  let xLabels = '';
-  labels.forEach((l,i) => {
-    if (i % skip === 0) xLabels += `<text class="axis-label" x="${xScale(i)}" y="${H-8}" text-anchor="middle">${l.slice(0,7)}</text>`;
-  });
-
-  let dots = '';
-  values.forEach((v,i) => {
-    dots += `<circle class="line-dot" cx="${xScale(i)}" cy="${yScale(v)}" r="3" fill="${color}" opacity=".8" data-lbl="${labels[i]}" data-val="${Math.round(v)}"/>`;
-  });
-
-  el.setAttribute('viewBox', `0 0 ${W} ${H}`);
-  el.innerHTML = gridLines +
-    `<defs><linearGradient id="lg${svgId}" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="${color}" stop-opacity=".3"/><stop offset="100%" stop-color="${color}" stop-opacity="0"/></linearGradient></defs>` +
-    `<polygon points="${areaPoints}" fill="url(#lg${svgId})"/>` +
-    `<polyline class="line-path" points="${pts}" stroke="${color}"/>` +
-    xLabels + dots;
-
-  el.querySelectorAll('.line-dot').forEach(dot => {
-    dot.addEventListener('mouseenter', e => {
-      tt.innerHTML = `<div class="tt-title">${dot.dataset.lbl}</div><div class="tt-row"><span>Avg Watts</span><span class="tt-val">${dot.dataset.val}W</span></div>`;
-      tt.classList.add('visible');
-    });
-    dot.addEventListener('mousemove', e => { tt.style.left=(e.clientX+12)+'px'; tt.style.top=(e.clientY-28)+'px'; });
-    dot.addEventListener('mouseleave', () => tt.classList.remove('visible'));
-  });
-}
-
 // ── COMPARE ────────────────────────────────────────────────────
 const CMP_COLORS = ['#e8413e', '#3b82f6', '#f97316'];
 const CMP_LABELS = ['Ride A', 'Ride B', 'Ride C'];
 
 function updateCompareBar() {
   const n = compareSelected.size;
-  // Update or inject a sticky selection bar in the log tab
   let bar = document.getElementById('cmp-select-bar');
   if (!bar) {
     bar = document.createElement('div');
@@ -1966,23 +1886,19 @@ function updateCompareBar() {
   }
   if (n === 0) { bar.style.display = 'none'; return; }
   bar.style.display = 'flex';
-  bar.innerHTML = `
-    <span style="font-size:13px;color:var(--text)">
-      <span style="color:var(--accent);font-weight:700">${n}</span> workout${n>1?'s':''} selected
-      <span style="color:var(--muted);font-size:11px;margin-left:8px">(max 3)</span>
-    </span>
-    <div style="display:flex;gap:8px">
-      <button class="btn-sm" id="cmp-go-btn" style="border-color:var(--accent);color:var(--accent)" ${n<2?'disabled':''}>
-        Compare →
-      </button>
-      <button class="btn-sm" id="cmp-desel-btn">Clear</button>
-    </div>`;
+  bar.innerHTML =
+    '<span style="font-size:13px;color:var(--text)">' +
+    '<span style="color:var(--accent);font-weight:700">'+n+'</span> workout'+(n>1?'s':'')+' selected' +
+    '<span style="color:var(--muted);font-size:11px;margin-left:8px">(max 3)</span></span>' +
+    '<div style="display:flex;gap:8px">' +
+    '<button class="btn-sm" id="cmp-go-btn" style="border-color:var(--accent);color:var(--accent)" '+(n<2?'disabled':'')+'>Compare &rarr;</button>' +
+    '<button class="btn-sm" id="cmp-desel-btn">Clear</button>' +
+    '</div>';
   document.getElementById('cmp-desel-btn').addEventListener('click', () => {
     compareSelected.clear(); updateCompareBar(); renderLog();
   });
   if (n >= 2) {
     document.getElementById('cmp-go-btn').addEventListener('click', () => {
-      // Switch to compare tab
       document.querySelectorAll('.tab').forEach(x => x.classList.remove('active'));
       document.querySelectorAll('.tab-content').forEach(x => x.style.display = 'none');
       document.querySelector('[data-tab="compare"]').classList.add('active');
@@ -2009,57 +1925,48 @@ function buildCompare() {
     document.getElementById('compare-content').style.display = 'none';
   };
 
-  // ── Metrics definition ─────────────────────────────────────
   const metrics = [
-    { key: 'watts',    label: 'Avg Watts',       fmt: v => v > 0 ? Math.round(v)+'W' : '—',    val: d => d._watts,    higherBetter: true },
-    { key: 'wpm',      label: 'Watts / Min',      fmt: v => v > 0 ? v.toFixed(2)+' W/m' : '—', val: d => d._length > 0 ? d._watts/d._length : 0, higherBetter: true },
-    { key: 'output',   label: 'Output (kJ)',       fmt: v => v > 0 ? Math.round(v)+' kJ' : '—', val: d => d._output,   higherBetter: true },
-    { key: 'opm',      label: 'Output / Min',      fmt: v => v > 0 ? v.toFixed(2)+' kJ/m' : '—',val: d => d._length > 0 ? d._output/d._length : 0, higherBetter: true },
-    { key: 'cadence',  label: 'Avg Cadence',       fmt: v => v > 0 ? Math.round(v)+' rpm' : '—',val: d => d._cadence,  higherBetter: true },
-    { key: 'hr',       label: 'Avg Heart Rate',    fmt: v => v > 0 ? Math.round(v)+' bpm' : '—',val: d => d._hr,       higherBetter: false },
-    { key: 'calories', label: 'Calories',          fmt: v => v > 0 ? Math.round(v) : '—',       val: d => d._calories, higherBetter: true },
-    { key: 'distance', label: 'Distance (mi)',     fmt: v => v > 0 ? v.toFixed(2)+' mi' : '—',  val: d => d._distance, higherBetter: true },
+    { key:'watts',    label:'Avg Watts',     fmt:v=>v>0?Math.round(v)+'W':'&mdash;',          val:d=>d._watts,                              higherBetter:true },
+    { key:'wpm',      label:'Watts / Min',   fmt:v=>v>0?v.toFixed(2)+' W/m':'&mdash;',        val:d=>d._length>0?d._watts/d._length:0,      higherBetter:true },
+    { key:'output',   label:'Output (kJ)',   fmt:v=>v>0?Math.round(v)+' kJ':'&mdash;',        val:d=>d._output,                             higherBetter:true },
+    { key:'opm',      label:'Output / Min',  fmt:v=>v>0?v.toFixed(2)+' kJ/m':'&mdash;',      val:d=>d._length>0?d._output/d._length:0,     higherBetter:true },
+    { key:'cadence',  label:'Avg Cadence',   fmt:v=>v>0?Math.round(v)+' rpm':'&mdash;',       val:d=>d._cadence,                            higherBetter:true },
+    { key:'hr',       label:'Avg Heart Rate',fmt:v=>v>0?Math.round(v)+' bpm':'&mdash;',       val:d=>d._hr,                                 higherBetter:false },
+    { key:'calories', label:'Calories',      fmt:v=>v>0?Math.round(v):'&mdash;',              val:d=>d._calories,                           higherBetter:true },
+    { key:'distance', label:'Distance (mi)', fmt:v=>v>0?v.toFixed(2)+' mi':'&mdash;',         val:d=>d._distance,                           higherBetter:true },
   ];
 
   const vals = metrics.map(m => rides.map(r => m.val(r)));
-
-  // ── Verdict ────────────────────────────────────────────────
   const wins = rides.map(() => 0);
   metrics.forEach((m, mi) => {
     const rv = vals[mi];
     const best = m.higherBetter ? Math.max(...rv) : Math.min(...rv.filter(v=>v>0));
     rv.forEach((v, ri) => { if (v > 0 && v === best) wins[ri]++; });
   });
-  const maxWins = Math.max(...wins);
-  const winnerIdx = wins.indexOf(maxWins);
+  const winnerIdx = wins.indexOf(Math.max(...wins));
 
-  document.getElementById('cmp-verdict').innerHTML = `
-    <div style="display:flex;gap:10px;flex-wrap:wrap">
-      ${rides.map((r, i) => `
-        <div class="verdict-card" style="flex:1;min-width:180px;border-color:${i===winnerIdx?CMP_COLORS[i]:'var(--border)'}">
-          <div style="width:12px;height:12px;border-radius:3px;background:${CMP_COLORS[i]};flex-shrink:0"></div>
-          <div>
-            <div class="verdict-name">${CMP_LABELS[i]} · ${r._date.toLocaleDateString()} · ${r._length} min</div>
-            <div class="verdict-score" style="color:${CMP_COLORS[i]}">${wins[i]} <span style="font-size:14px;color:var(--muted)">wins</span></div>
-            <div style="font-size:11px;color:var(--muted);margin-top:2px">${r._title || r._discipline}</div>
-          </div>
-          ${i===winnerIdx ? '<div style="margin-left:auto;font-size:18px">🏆</div>' : ''}
-        </div>`).join('')}
-    </div>`;
+  document.getElementById('cmp-verdict').innerHTML =
+    '<div style="display:flex;gap:10px;flex-wrap:wrap">' +
+    rides.map((r, i) =>
+      '<div class="verdict-card" style="flex:1;min-width:180px;border-color:'+(i===winnerIdx?CMP_COLORS[i]:'var(--border)')+'">' +
+      '<div style="width:12px;height:12px;border-radius:3px;background:'+CMP_COLORS[i]+';flex-shrink:0"></div>' +
+      '<div><div class="verdict-name">'+CMP_LABELS[i]+' &middot; '+r._date.toLocaleDateString()+' &middot; '+r._length+' min</div>' +
+      '<div class="verdict-score" style="color:'+CMP_COLORS[i]+'">'+wins[i]+' <span style="font-size:14px;color:var(--muted)">wins</span></div>' +
+      '<div style="font-size:11px;color:var(--muted);margin-top:2px">'+(r._title||r._discipline)+'</div></div>' +
+      (i===winnerIdx?'<div style="margin-left:auto;font-size:18px">&#127942;</div>':'')+
+      '</div>'
+    ).join('') +
+    '</div>';
 
-  // ── Head-to-head table ────────────────────────────────────
-  const gridCols = `grid-template-columns: 140px ${rides.map(()=>'1fr').join(' ')}`;
-  let tableHTML = `<div style="display:grid;${gridCols};gap:0">`;
-  // Header row
-  tableHTML += `<div style="font-size:10px;color:var(--muted);padding:8px 0;border-bottom:2px solid var(--border)"></div>`;
+  const gridCols = 'grid-template-columns: 140px '+rides.map(()=>'1fr').join(' ');
+  let tableHTML = '<div style="display:grid;'+gridCols+';gap:0">';
+  tableHTML += '<div style="font-size:10px;color:var(--muted);padding:8px 0;border-bottom:2px solid var(--border)"></div>';
   rides.forEach((r, i) => {
-    tableHTML += `<div style="padding:8px 8px;border-bottom:2px solid var(--border)">
-      <div style="display:flex;align-items:center;gap:6px">
-        <div style="width:10px;height:10px;border-radius:2px;background:${CMP_COLORS[i]}"></div>
-        <div style="font-size:12px;font-weight:600;color:var(--text)">${CMP_LABELS[i]}</div>
-      </div>
-      <div style="font-size:10px;color:var(--muted);margin-top:2px">${r._date.toLocaleDateString()}</div>
-    </div>`;
+    tableHTML += '<div style="padding:8px 8px;border-bottom:2px solid var(--border)">' +
+      '<div style="display:flex;align-items:center;gap:6px">' +
+      '<div style="width:10px;height:10px;border-radius:2px;background:'+CMP_COLORS[i]+'"></div>' +
+      '<div style="font-size:12px;font-weight:600;color:var(--text)">'+CMP_LABELS[i]+'</div></div>' +
+      '<div style="font-size:10px;color:var(--muted);margin-top:2px">'+r._date.toLocaleDateString()+'</div></div>';
   });
 
   metrics.forEach((m, mi) => {
@@ -2070,41 +1977,34 @@ function buildCompare() {
     const maxVal = validVals.length ? Math.max(...validVals) : 1;
     const rowBg = mi % 2 === 0 ? 'transparent' : 'rgba(255,255,255,.02)';
 
-    tableHTML += `<div style="font-size:10px;text-transform:uppercase;letter-spacing:.8px;color:var(--muted);padding:10px 0 10px;background:${rowBg};display:flex;align-items:center">${m.label}</div>`;
+    tableHTML += '<div style="font-size:10px;text-transform:uppercase;letter-spacing:.8px;color:var(--muted);padding:10px 0;background:'+rowBg+';display:flex;align-items:center">'+m.label+'</div>';
     rv.forEach((v, ri) => {
-      const isWin = !allZero && v > 0 && v === best;
+      const isWin  = !allZero && v > 0 && v === best;
       const isLose = !allZero && v > 0 && v !== best && validVals.length > 1;
-      const color = isWin ? 'var(--green)' : isLose ? '#4b5563' : 'var(--label)';
+      const color  = isWin ? 'var(--green)' : isLose ? '#4b5563' : 'var(--label)';
       const barPct = maxVal > 0 && v > 0 ? (v / maxVal) * 100 : 0;
-      tableHTML += `<div style="padding:8px 8px;background:${rowBg};display:flex;flex-direction:column;justify-content:center;gap:4px">
-        <div style="font-family:'DM Mono',monospace;font-size:13px;font-weight:500;color:${color}">${m.fmt(v)}${isWin ? ' ✓' : ''}</div>
-        ${barPct > 0 ? `<div class="cmp-bar-track"><div class="cmp-bar-fill" style="width:${barPct}%;background:${CMP_COLORS[ri]}"></div></div>` : ''}
-      </div>`;
+      tableHTML += '<div style="padding:8px 8px;background:'+rowBg+';display:flex;flex-direction:column;justify-content:center;gap:4px">' +
+        '<div style="font-family:\'DM Mono\',monospace;font-size:13px;font-weight:500;color:'+color+'">'+m.fmt(v)+(isWin?' &#10003;':'')+'</div>' +
+        (barPct > 0 ? '<div class="cmp-bar-track"><div class="cmp-bar-fill" style="width:'+barPct+'%;background:'+CMP_COLORS[ri]+'"></div></div>' : '') +
+        '</div>';
     });
   });
   tableHTML += '</div>';
   document.getElementById('cmp-table').innerHTML = tableHTML;
-
-  // ── Radar chart ───────────────────────────────────────────
   buildRadar(rides, metrics, vals);
 }
 
 function buildRadar(rides, metrics, vals) {
-  // Use 6 key metrics for radar (skip HR lower-is-better complexity in viz)
   const radarMetrics = [
-    { label: 'Watts', idx: 0 },
-    { label: 'W/Min', idx: 1 },
-    { label: 'Output', idx: 2 },
-    { label: 'O/Min', idx: 3 },
-    { label: 'Cadence', idx: 4 },
-    { label: 'Calories', idx: 6 },
+    { label:'Watts', idx:0 }, { label:'W/Min', idx:1 },
+    { label:'Output', idx:2 }, { label:'O/Min', idx:3 },
+    { label:'Cadence', idx:4 }, { label:'Calories', idx:6 },
   ];
   const N = radarMetrics.length;
-  const cx = 170, cy = 150, R = 110, Ri = [0.2, 0.4, 0.6, 0.8, 1.0];
+  const cx = 170, cy = 150, R = 110;
   const angle = i => (i / N) * Math.PI * 2 - Math.PI / 2;
   const pt = (i, r) => [cx + r * Math.cos(angle(i)), cy + r * Math.sin(angle(i))];
 
-  // Normalize each metric 0–1 across all rides
   const normed = radarMetrics.map(rm => {
     const rv = vals[rm.idx];
     const max = Math.max(...rv, 0.001);
@@ -2112,47 +2012,139 @@ function buildRadar(rides, metrics, vals) {
   });
 
   let svg = '';
-
-  // Grid rings
-  Ri.forEach(r => {
-    const pts = radarMetrics.map((_, i) => pt(i, R * r).join(',')).join(' ');
-    svg += `<polygon points="${pts}" fill="none" stroke="var(--border)" stroke-width="1"/>`;
+  [0.2,0.4,0.6,0.8,1.0].forEach(r => {
+    const pts = radarMetrics.map((_,i) => pt(i, R*r).join(',')).join(' ');
+    svg += '<polygon points="'+pts+'" fill="none" stroke="var(--border)" stroke-width="1"/>';
   });
-  // Spokes
-  radarMetrics.forEach((_, i) => {
-    const [x, y] = pt(i, R);
-    svg += `<line x1="${cx}" y1="${cy}" x2="${x}" y2="${y}" stroke="var(--border)" stroke-width="1"/>`;
+  radarMetrics.forEach((_,i) => {
+    const [x,y] = pt(i, R);
+    svg += '<line x1="'+cx+'" y1="'+cy+'" x2="'+x+'" y2="'+y+'" stroke="var(--border)" stroke-width="1"/>';
   });
-  // Labels
-  radarMetrics.forEach((rm, i) => {
-    const [x, y] = pt(i, R + 18);
-    svg += `<text x="${x}" y="${y}" text-anchor="middle" dominant-baseline="middle" font-family="DM Mono,monospace" font-size="10" fill="#6b7280">${rm.label}</text>`;
+  radarMetrics.forEach((rm,i) => {
+    const [x,y] = pt(i, R+18);
+    svg += '<text x="'+x+'" y="'+y+'" text-anchor="middle" dominant-baseline="middle" font-family="DM Mono,monospace" font-size="10" fill="#6b7280">'+rm.label+'</text>';
   });
-
-  // Ride polygons
-  rides.forEach((_, ri) => {
-    const pts = radarMetrics.map((rm, i) => {
+  rides.forEach((_,ri) => {
+    const pts = radarMetrics.map((rm,i) => {
       const n = normed[i][ri];
       return pt(i, R * Math.max(0.02, n)).join(',');
     }).join(' ');
-    svg += `<polygon points="${pts}" fill="${CMP_COLORS[ri]}" fill-opacity="0.15" stroke="${CMP_COLORS[ri]}" stroke-width="2"/>`;
-    // Dots
-    radarMetrics.forEach((rm, i) => {
-      const n = normed[i][ri];
-      const [x, y] = pt(i, R * Math.max(0.02, n));
-      svg += `<circle cx="${x}" cy="${y}" r="4" fill="${CMP_COLORS[ri]}" opacity="0.9"/>`;
+    svg += '<polygon points="'+pts+'" fill="'+CMP_COLORS[ri]+'" fill-opacity="0.15" stroke="'+CMP_COLORS[ri]+'" stroke-width="2"/>';
+    radarMetrics.forEach((rm,i) => {
+      const [x,y] = pt(i, R * Math.max(0.02, normed[i][ri]));
+      svg += '<circle cx="'+x+'" cy="'+y+'" r="4" fill="'+CMP_COLORS[ri]+'" opacity="0.9"/>';
     });
   });
 
   document.getElementById('cmp-radar').innerHTML = svg;
-
-  // Legend
-  document.getElementById('cmp-radar-legend').innerHTML = rides.map((r, i) =>
-    `<div style="display:flex;align-items:center;gap:6px">
-      <div style="width:12px;height:3px;background:${CMP_COLORS[i]};border-radius:2px"></div>
-      <span style="color:var(--label)">${CMP_LABELS[i]}</span>
-    </div>`
+  document.getElementById('cmp-radar-legend').innerHTML = rides.map((r,i) =>
+    '<div style="display:flex;align-items:center;gap:6px">' +
+    '<div style="width:12px;height:3px;background:'+CMP_COLORS[i]+';border-radius:2px"></div>' +
+    '<span style="color:var(--label)">'+CMP_LABELS[i]+'</span></div>'
   ).join('');
+}
+
+// ── CHART HELPERS ─────────────────────────────────────────────
+const tt = document.getElementById('tooltip');
+
+function drawBarChart(svgId, labels, values, color) {
+  const el = document.getElementById(svgId);
+  if (!el) return;
+  const parentW = el.parentElement.clientWidth || el.parentElement.getBoundingClientRect().width;
+  const W = (parentW > 60 ? parentW : 560) - 40;
+  const H = 200;
+  const pad = { t:12, r:10, b:36, l:44 };
+  const cW = W - pad.l - pad.r;
+  const cH = H - pad.t - pad.b;
+  const maxV = Math.max(...values, 1);
+  const barW = Math.max(2, cW / labels.length - 2);
+
+  let gridLines = '';
+  for (let i = 0; i <= 4; i++) {
+    const y = pad.t + cH - (i/4)*cH;
+    const v = Math.round((i/4)*maxV);
+    gridLines += '<line class="grid-line" x1="'+pad.l+'" y1="'+y+'" x2="'+(pad.l+cW)+'" y2="'+y+'"/>';
+    gridLines += '<text class="axis-label" x="'+(pad.l-6)+'" y="'+(y+4)+'" text-anchor="end">'+v+'</text>';
+  }
+
+  let bars = '';
+  const skip = Math.ceil(labels.length / 20);
+  labels.forEach((lbl, i) => {
+    const x = pad.l + i * (cW / labels.length) + (cW/labels.length - barW)/2;
+    const h = Math.max(1, (values[i]/maxV)*cH);
+    const y = pad.t + cH - h;
+    bars += '<rect class="bar-fill" x="'+x+'" y="'+y+'" width="'+barW+'" height="'+h+'" fill="'+color+'" rx="2" data-lbl="'+lbl+'" data-val="'+values[i]+'"/>';
+    if (i % skip === 0) {
+      bars += '<text class="axis-label" x="'+(x+barW/2)+'" y="'+(H-8)+'" text-anchor="middle">'+(lbl.length>6?lbl.slice(0,6):lbl)+'</text>';
+    }
+  });
+
+  el.setAttribute('viewBox', '0 0 '+W+' '+H);
+  el.innerHTML = gridLines + bars;
+  el.querySelectorAll('.bar-fill').forEach(bar => {
+    bar.addEventListener('mouseenter', e => {
+      tt.innerHTML = '<div class="tt-title">'+bar.dataset.lbl+'</div><div class="tt-row"><span>Value</span><span class="tt-val">'+Number(bar.dataset.val).toLocaleString()+'</span></div>';
+      tt.classList.add('visible');
+    });
+    bar.addEventListener('mousemove', e => { tt.style.left=(e.clientX+12)+'px'; tt.style.top=(e.clientY-28)+'px'; });
+    bar.addEventListener('mouseleave', () => tt.classList.remove('visible'));
+  });
+}
+
+function drawLineChart(svgId, labels, values, color) {
+  const el = document.getElementById(svgId);
+  if (!el) return;
+  const parentW = el.parentElement.clientWidth || el.parentElement.getBoundingClientRect().width;
+  const W = (parentW > 60 ? parentW : 560) - 40;
+  const H = 200;
+  const pad = { t:12, r:10, b:36, l:44 };
+  const cW = W - pad.l - pad.r;
+  const cH = H - pad.t - pad.b;
+  const minV = Math.min(...values);
+  const maxV = Math.max(...values, minV+1);
+  const range = maxV - minV;
+
+  const xScale = i => pad.l + (i/(labels.length-1||1))*cW;
+  const yScale = v => pad.t + cH - ((v-minV)/range)*cH;
+
+  let gridLines = '';
+  for (let i = 0; i <= 4; i++) {
+    const y = pad.t + (i/4)*cH;
+    const v = Math.round(maxV - (i/4)*range);
+    gridLines += '<line class="grid-line" x1="'+pad.l+'" y1="'+y+'" x2="'+(pad.l+cW)+'" y2="'+y+'"/>';
+    gridLines += '<text class="axis-label" x="'+(pad.l-6)+'" y="'+(y+4)+'" text-anchor="end">'+v+'</text>';
+  }
+
+  const pts = values.map((v,i) => xScale(i)+','+yScale(v)).join(' ');
+  const firstX = xScale(0), lastX = xScale(values.length-1);
+  const areaPoints = firstX+','+(pad.t+cH)+' '+pts+' '+lastX+','+(pad.t+cH);
+
+  const skip = Math.ceil(labels.length / 10);
+  let xLabels = '';
+  labels.forEach((l,i) => {
+    if (i % skip === 0) xLabels += '<text class="axis-label" x="'+xScale(i)+'" y="'+(H-8)+'" text-anchor="middle">'+l.slice(0,7)+'</text>';
+  });
+
+  let dots = '';
+  values.forEach((v,i) => {
+    dots += '<circle class="line-dot" cx="'+xScale(i)+'" cy="'+yScale(v)+'" r="3" fill="'+color+'" opacity=".8" data-lbl="'+labels[i]+'" data-val="'+Math.round(v)+'"/>';
+  });
+
+  el.setAttribute('viewBox', '0 0 '+W+' '+H);
+  el.innerHTML = gridLines +
+    '<defs><linearGradient id="lg'+svgId+'" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="'+color+'" stop-opacity=".3"/><stop offset="100%" stop-color="'+color+'" stop-opacity="0"/></linearGradient></defs>' +
+    '<polygon points="'+areaPoints+'" fill="url(#lg'+svgId+')"/>' +
+    '<polyline class="line-path" points="'+pts+'" stroke="'+color+'"/>' +
+    xLabels + dots;
+
+  el.querySelectorAll('.line-dot').forEach(dot => {
+    dot.addEventListener('mouseenter', e => {
+      tt.innerHTML = '<div class="tt-title">'+dot.dataset.lbl+'</div><div class="tt-row"><span>Avg Watts</span><span class="tt-val">'+dot.dataset.val+'W</span></div>';
+      tt.classList.add('visible');
+    });
+    dot.addEventListener('mousemove', e => { tt.style.left=(e.clientX+12)+'px'; tt.style.top=(e.clientY-28)+'px'; });
+    dot.addEventListener('mouseleave', () => tt.classList.remove('visible'));
+  });
 }
 
 // ── UTILS ─────────────────────────────────────────────────────
